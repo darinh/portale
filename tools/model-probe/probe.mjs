@@ -50,6 +50,17 @@ const PROMPT = `You are the Dungeon Master. The player says: "I try to pick the 
 
 Decide what happens. Respond with the narration and the check the player must make.`;
 
+/**
+ * Modes without a schema are told the required shape in prose. Without this the
+ * comparison is confounded: schema mode receives the field names and the baselines do
+ * not, so a baseline failure could mean "cannot follow a shape" or merely "was never
+ * shown one". Stating it here makes the contrast measure compliance, not disclosure.
+ */
+const SHAPE_IN_PROSE = `
+
+Reply with ONLY a JSON object, no prose outside it, using exactly these keys:
+{"narration": <string>, "intent": {"kind": <one of "skill_check"|"attack"|"narrate_only">, "ability": <one of "strength"|"dexterity"|"constitution"|"intelligence"|"wisdom"|"charisma">, "difficulty": <integer between 5 and 30>}}`;
+
 /** Validates against the real invariants the engine would enforce, not just JSON.parse. */
 function validate(obj) {
   const errors = [];
@@ -77,7 +88,7 @@ function validate(obj) {
 async function runTrial(mode) {
   const body = {
     model: values.model,
-    prompt: PROMPT,
+    prompt: mode === "schema" ? PROMPT : PROMPT + SHAPE_IN_PROSE,
     stream: false,
     options: { temperature: 0.8 },
   };

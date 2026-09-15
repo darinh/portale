@@ -55,32 +55,67 @@ smuggler. There is exactly one defensible target.
 
 ## Measured result
 
-| Room | Target inside enum | Target correct |
+RETRACTED. The first run of this probe was confounded and its numbers should not be used.
+See "The retraction" below. The corrected run, with the attractor present in every
+condition, is:
+
+| Enum size | Target inside enum | Target correct |
 | --- | --- | --- |
-| 3 entities | 8/8 | 8/8 |
-| 10 entities | 8/8 | 4/8 |
-| 25 entities | 8/8 | 3/8 |
+| 3 | 8/8 | 6/8 |
+| 6 | 8/8 | 3/8 |
+| 8 | 8/8 | 3/8 |
+| 10 | 8/8 | 4/8 |
+| 25 | 8/8 | 6/8 |
 
-`op` was correct 8/8 at every size. That enum has four members and never degraded.
+`op` was correct 7/8 or 8/8 at every size. That enum has four members.
 
-## What this means
+## The retraction
 
-The decoder guarantee is absolute and misleading. Validity held at 24/24 across every
-condition while correctness fell to 37%. The most common wrong answer was
-`e_old_woman_knitting`, an unarmed bystander.
+The first version of this script built each condition with `DISTRACTORS.slice(0, n-1)`
+over an arbitrarily ordered list. `e_old_woman_knitting` sat at index 5, so it was absent
+from the 3-entity condition and present in the larger ones. It then accounted for nearly
+every wrong answer.
 
-Measuring validity alone would have scored this run perfect. The failure is only visible
-if the probe knows which answer was *right*, which is why this script asserts on a known
-correct target rather than on schema conformance.
+That produced a clean and completely spurious trend of 8/8, 4/8, 3/8 for sizes 3, 10 and
+25, which was read as enum length degrading choice quality. Length was confounded with
+distractor identity. The experiment never measured what it claimed.
 
-So `inReach` is a load-bearing policy decision, not a convenience. Scope it to the few
-entities the player could plausibly mean and let the prompt mention the rest as scenery.
-A generous `inReach` is actively harmful, and it is harmful in a way no validity metric
-will ever report.
+The corrected run pins the attractor at index 0 so it appears in every condition. The
+trend disappears. Size 25 scores the same as size 3.
+
+## What actually holds
+
+The decoder guarantee is real and absolute. Target-inside-enum was 8/8 in all five
+conditions across both runs, and 40/40 overall.
+
+Reference resolution is unreliable on this model and list length is not why. A 3B model
+asked to bind "the one-eyed smuggler threatening me" to `e_marga_smuggler` gets it right
+somewhere between 37% and 75% of the time, and a salient distractor pulls it off target
+whether it is choosing among 3 candidates or 25.
+
+Validity metrics cannot see any of this. In-enum conformance was perfect in every single
+condition including the ones where the model attacked an unarmed bystander five times out
+of eight.
+
+## What this does NOT license
+
+It does not license a cap on `inReach`, and `MAX_IN_REACH = 6` in `brief.ts` currently
+has no evidence behind it. Capping the list does not restore correctness because length
+is not the mechanism.
+
+It also does not license strong claims from these numbers generally. Eight trials per
+cell cannot separate 3/8 from 6/8. Treat every figure here as a smoke signal, not a
+measurement, until it is re-run with more trials on the real 14B target.
+
+## A hypothesis worth testing next
+
+The enum values are opaque snake_case identifiers. The model must map a natural-language
+description onto `e_marga_smuggler`. That mapping, rather than the list length, is the
+plausible failure. Carrying human-readable labels alongside the ids, or supplying an
+explicit name-to-id table in the prompt, is the cheaper fix to try before capping
+anything.
 
 ## Caveat
 
-This is a 3B model on CPU, weaker than the 14B production target. The absolute numbers
-should improve on a 4090. The shape of the degradation is the finding, and the mitigation
-costs nothing, so apply it regardless and re-run this probe on the real host before
-trusting any specific cap.
+This is a 3B model on CPU, weaker than the 14B production target. Re-run on the real host
+before trusting any number here.

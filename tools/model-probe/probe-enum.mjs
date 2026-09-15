@@ -29,13 +29,20 @@ const TRIALS = Number(values.trials);
 /** The unambiguously correct answer. The scene names her and only her as the threat. */
 const CORRECT = "e_marga_smuggler";
 
+/**
+ * The attractor MUST be index 0 so it is present in every condition including the
+ * smallest. A first version of this script sliced distractors from an arbitrary order,
+ * which left the tempting wrong answer out of the 3-entity case entirely and confounded
+ * enum length with distractor identity. The 8/8 it reported was not measuring length.
+ */
 const DISTRACTORS = [
-  "e_barkeep_olen", "e_drunk_by_hearth", "e_lute_player", "e_dock_hand_sel",
-  "e_card_sharp", "e_old_woman_knitting", "e_stray_dog", "e_militia_corporal",
+  "e_old_woman_knitting", "e_barkeep_olen", "e_drunk_by_hearth", "e_lute_player",
+  "e_dock_hand_sel", "e_card_sharp", "e_militia_corporal",
   "e_fishwife_bren", "e_hooded_scribe", "e_apprentice_cooper", "e_off_duty_guard",
   "e_beggar_at_door", "e_travelling_priest", "e_wine_merchant", "e_deaf_porter",
   "e_twin_sister_a", "e_twin_sister_b", "e_rat_catcher", "e_mute_stablehand",
   "e_tax_collector", "e_bard_asleep", "e_cheese_seller", "e_goat_in_corner",
+  "e_militia_sergeant",
 ];
 
 const SCENE = `The common room of the Drowned Lantern. Marga, a one-eyed smuggler, has just
@@ -146,6 +153,8 @@ console.log(`conservative direction. If it holds here it should hold there.\n`);
 
 const out = [];
 out.push(await runSize(3, "small room"));
+out.push(await runSize(6, "at the proposed cap"));
+out.push(await runSize(8, "at the decoder-visible bound"));
 out.push(await runSize(10, "busy room"));
 out.push(await runSize(25, "crowded room"));
 
@@ -155,3 +164,5 @@ for (const s of out) {
     `  enum ${String(s.n).padStart(2)}  in-enum ${s.inEnum}/${s.trials}  correct ${s.correct}/${s.trials}   ${s.label}`,
   );
 }
+console.log(`\nThe attractor e_old_woman_knitting is present in EVERY condition, so the`);
+console.log(`only variable across rows is list length.`);
