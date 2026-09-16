@@ -50,7 +50,9 @@ export function openStore(path: string): Store {
   const getSession = db.prepare('SELECT id, scenario, seed FROM sessions WHERE id = ?');
   const getEvents = db.prepare('SELECT payload FROM events WHERE session_id = ? ORDER BY seq');
   const listSessions = db.prepare(`
-    SELECT s.id AS id, s.scenario AS scenario, COUNT(e.seq) AS turns
+    SELECT s.id AS id,
+           s.scenario AS scenario,
+           COUNT(CASE WHEN json_extract(e.payload, '$.kind') = 'said' THEN 1 END) AS turns
     FROM sessions s LEFT JOIN events e ON e.session_id = s.id
     GROUP BY s.id ORDER BY s.created_at DESC
   `);

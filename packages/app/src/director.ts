@@ -40,6 +40,9 @@ export type MintSlot = (typeof MINT_SLOTS)[number];
  */
 export const MAX_IN_REACH = 8;
 
+/** Spoken lines of history the DM is shown. Counted after filtering, not before. */
+export const RECENT_LINES = 8;
+
 export interface SceneBrief {
   readonly scene: string;
   readonly mode: Mode;
@@ -55,7 +58,7 @@ export type Target = EntityId | MintSlot;
 
 export interface Proposal {
   readonly narration: string;
-  readonly op: 'attack' | 'skill_check' | 'talk' | 'introduce' | 'narrate_only';
+  readonly op: 'attack' | 'engage' | 'skill_check' | 'talk' | 'introduce' | 'narrate_only';
   readonly target: Target;
   readonly ability: 'strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma';
   readonly difficulty: number;
@@ -79,8 +82,13 @@ export class DirectorContractBreach extends Error {
   }
 }
 
+/**
+ * `engage` is the only way into combat, and it exists because `attack` is deliberately
+ * undecodable during exploration. Without it the game could never leave peace, which is
+ * exactly what happened before this op was added.
+ */
 const OPS_BY_MODE: Record<Mode, readonly Proposal['op'][]> = {
-  exploration: ['skill_check', 'talk', 'introduce', 'narrate_only'],
+  exploration: ['skill_check', 'talk', 'introduce', 'engage', 'narrate_only'],
   combat: ['attack', 'skill_check', 'narrate_only'],
 };
 
@@ -208,15 +216,26 @@ export function briefFor(w: World, utterance: string): SceneBrief {
   const others = [...w.entities.values()].filter((e) => e.id !== w.protagonist);
   const ranked = [...others].sort((a, b) => Number(b.hostile) - Number(a.hostile) || Number(a.dead) - Number(b.dead));
 
+  // Filter first, then take the last few. Slicing raw events first would have counted
+  // rolls and damage against the budget, so a single busy turn could evict every earlier
+  // line and leave the DM with no memory of the conversation.
+  const spoken = w.log.flatMap((e) =>
+    e.kind === 'narrated'
+      ? [`DM: ${e.text}`]
+      : e.kind === 'began'
+        ? [`DM: ${e.narration}`]
+        : e.kind === 'said'
+          ? [`Player: ${e.text}`]
+          : [],
+  );
+
   return {
     scene: w.scene,
     mode: w.mode,
     protagonist,
     inReach: ranked.slice(0, MAX_IN_REACH),
     scenery: ranked.slice(MAX_IN_REACH),
-    recent: w.log
-      .slice(-6)
-      .flatMap((e) => (e.kind === 'narrated' ? [e.text] : e.kind === 'began' ? [e.narration] : [])),
+    recent: spoken.slice(-RECENT_LINES),
     utterance,
   };
 }

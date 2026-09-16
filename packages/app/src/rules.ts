@@ -9,13 +9,16 @@
  * again. The shape win came from a forcing function inside the decoder and semantics has
  * no equivalent, so re-drawing from the same sampler is another sample, not a correction.
  *
- * Rulings are narrated rather than hidden, and they stay in the log. A rising refusal rate
- * is how you find a bad prompt, so refusals are telemetry rather than an error channel.
+ * Rulings reach the log the instant they are decided. An earlier version collected them in
+ * a local array and converted them to events in a trailing loop, which three early returns
+ * jumped straight over, so every dropped intent was ruled on and then silently discarded.
+ * Emitting at the decision point is what makes "refusals are telemetry" true rather than
+ * aspirational.
  */
 
 import { roll } from './dice.ts';
 import type { Proposal, SceneBrief } from './director.ts';
-import { entityId } from './world.ts';
+import { apply, entityId } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
 export type Ruling =
@@ -30,66 +33,85 @@ export interface Adjudication {
   readonly softFail: boolean;
 }
 
-/** Difficulty the DM is allowed to set. Beyond this the engine pulls it back. */
 const DC_FLOOR = 5;
 const DC_CEILING = 25;
 const MAX_DAMAGE = 12;
+const MINTED_HP = 8;
 
-let mintCounter = 0;
-
-function mint(): EntityId {
-  mintCounter += 1;
-  return entityId(`e_m${mintCounter.toString(36)}${Date.now().toString(36).slice(-4)}`);
+/**
+ * Minted ids derive from the world's own seed and event count, never from wall clock time
+ * or module-level state. A counter reset by a server restart, or a timestamp that wraps,
+ * would let two sessions collide and would break replay determinism.
+ */
+function mintId(w: World): EntityId {
+  return entityId(`e_m${w.seed.toString(36)}_${w.seq.toString(36)}`);
 }
 
-export function resetMintCounterForTests(): void {
-  mintCounter = 0;
-}
-
-export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adjudication {
+export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Adjudication {
   const events: WorldEvent[] = [];
   const rulings: Ruling[] = [];
 
-  events.push({ kind: 'narrated', text: proposal.narration });
+  // The working world absorbs each event as it is produced, so a lookup later in this
+  // function sees an NPC introduced earlier in the same turn.
+  let working = w;
+
+  function emit(e: WorldEvent): void {
+    events.push(e);
+    working = apply(working, e);
+  }
+
+  function rule(r: Exclude<Ruling, { kind: 'applied' }>): void {
+    rulings.push(r);
+    emit({ kind: 'ruled', why: r.why, detail: r.detail });
+  }
+
+  emit({ kind: 'narrated', text: proposal.narration });
 
   let targetId: EntityId | null = null;
 
   if (proposal.target === '~new1' || proposal.target === '~new2') {
     if (proposal.introduces === null) {
-      rulings.push({
+      rule({
         kind: 'drop',
         why: 'mint-without-lore',
         detail: 'The DM reached for a new character but did not say who they were.',
       });
     } else {
       const entity: Entity = {
-        id: mint(),
+        id: mintId(working),
         name: proposal.introduces.name,
         lore: proposal.introduces.lore,
-        hp: { now: 8, max: 8 },
+        hp: { now: MINTED_HP, max: MINTED_HP },
         hostile: proposal.introduces.hostile,
         dead: false,
       };
-      events.push({ kind: 'introduced', entity });
+      emit({ kind: 'introduced', entity });
       targetId = entity.id;
     }
   } else {
-    const named = w.entities.get(proposal.target);
+    const named = working.entities.get(proposal.target);
     if (named === undefined) {
-      rulings.push({
-        kind: 'drop',
-        why: 'absent-target',
-        detail: 'The DM named someone who is not here.',
-      });
+      rule({ kind: 'drop', why: 'absent-target', detail: 'The DM named someone who is not here.' });
     } else if (named.dead && proposal.op === 'attack') {
-      rulings.push({
-        kind: 'drop',
-        why: 'already-dead',
-        detail: `${named.name} has already fallen.`,
-      });
+      rule({ kind: 'drop', why: 'already-dead', detail: `${named.name} has already fallen.` });
     } else {
       targetId = named.id;
     }
+  }
+
+  if (proposal.op === 'engage') {
+    if (targetId === null) return { events, rulings, softFail: true };
+    const foe = working.entities.get(targetId);
+    if (foe === undefined || !foe.hostile || foe.dead) {
+      rule({
+        kind: 'drop',
+        why: 'nothing-to-fight',
+        detail: 'There is no one here willing to trade blows.',
+      });
+      return { events, rulings, softFail: true };
+    }
+    if (working.mode !== 'combat') emit({ kind: 'mode', to: 'combat' });
+    return { events, rulings, softFail: false };
   }
 
   if (proposal.op === 'narrate_only' || proposal.op === 'introduce' || proposal.op === 'talk') {
@@ -103,7 +125,7 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
   let dc = proposal.difficulty;
   if (dc < DC_FLOOR || dc > DC_CEILING) {
     const clamped = Math.max(DC_FLOOR, Math.min(dc, DC_CEILING));
-    rulings.push({
+    rule({
       kind: 'rewrite',
       why: 'difficulty-out-of-band',
       detail: `The DM called for ${dc}; the table settles on ${clamped}.`,
@@ -112,7 +134,7 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
   }
 
   const outcome = roll(w.seed, w.seq, 20, 0, dc);
-  events.push({ kind: 'rolled', roll: outcome, actor: w.protagonist, why: proposal.ability });
+  emit({ kind: 'rolled', roll: outcome, actor: w.protagonist, why: proposal.ability });
 
   if (!outcome.success) {
     return { events, rulings, softFail: false };
@@ -121,7 +143,7 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
   if (proposal.op === 'attack') {
     let damage = proposal.damage;
     if (damage > MAX_DAMAGE) {
-      rulings.push({
+      rule({
         kind: 'rewrite',
         why: 'damage-out-of-band',
         detail: `The DM swung for ${damage}; the table caps it at ${MAX_DAMAGE}.`,
@@ -131,22 +153,16 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
     if (damage <= 0) damage = 1;
     if (outcome.critical === 'hit') damage *= 2;
 
-    const target = w.entities.get(targetId);
-    events.push({ kind: 'damaged', target: targetId, amount: damage });
-    if (target !== undefined && target.hp.now - damage <= 0) {
-      events.push({ kind: 'died', target: targetId });
-      if (w.mode === 'combat') {
-        const othersAlive = [...w.entities.values()].some(
-          (e) => e.id !== w.protagonist && e.id !== targetId && e.hostile && !e.dead,
-        );
-        if (!othersAlive) events.push({ kind: 'mode', to: 'exploration' });
-      }
-    }
-  }
+    const target = working.entities.get(targetId);
+    emit({ kind: 'damaged', target: targetId, amount: damage });
 
-  for (const r of rulings) {
-    if (r.kind !== 'applied') {
-      events.push({ kind: 'ruled', why: r.why, detail: r.detail });
+    if (target !== undefined && target.hp.now - damage <= 0) {
+      emit({ kind: 'died', target: targetId });
+
+      const foesLeft = [...working.entities.values()].some(
+        (e) => e.id !== working.protagonist && e.hostile && !e.dead,
+      );
+      if (working.mode === 'combat' && !foesLeft) emit({ kind: 'mode', to: 'exploration' });
     }
   }
 
