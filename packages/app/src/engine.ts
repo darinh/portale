@@ -70,6 +70,7 @@ export interface TurnResult {
 
 export async function takeTurn(session: Session, utterance: string, director: Director): Promise<TurnResult> {
   const brief = briefFor(session.world, utterance);
+  session.world = apply(session.world, { kind: 'said', text: utterance });
 
   let proposal;
   try {

@@ -1,0 +1,10 @@
+PORTALE
+EXPLORATION
+hp 20/20
+Rain hammers the shutters. You have been waiting two hours for a woman who deals in things the harbourmaster would rather not see. The barkeep will not meet your eye, and the one-eyed smuggler in the corner has been watching you since you sat down.
+Marga sees your hand move and is already rising, the curved knife catching the lamplight.
+d20 → 15 vs DC 12 · success
+Marga takes 4
+Marga 8/12
+Olen the barkeep 10/10
+Act

@@ -185,6 +185,29 @@ test('a turn still settles when the DM is unreachable', async () => {
   assert.ok(result.view.transcript.length > 0, 'the player must still have something to read');
 });
 
+test('the transcript records what the player said, not only what the DM said', async () => {
+  const s = session();
+  const dm = scriptedDirector([proposal({ difficulty: 5 })]);
+  await takeTurn(s, 'I draw my blade and strike at Marga', dm);
+
+  const said = project(s.world).transcript.filter((l) => l.kind === 'you');
+  assert.equal(said.length, 1, 'the player utterance must appear exactly once');
+  assert.equal(said[0]!.text, 'I draw my blade and strike at Marga');
+});
+
+test('the player utterance survives a reload, because it is in the log', async () => {
+  const s = session();
+  const dm = scriptedDirector([proposal({ difficulty: 5 })]);
+  await takeTurn(s, 'I ask Olen about the harbourmaster', dm);
+
+  const base = begin(SCENARIO, seed(42));
+  const replayed = fold({ ...base, seq: 0, log: [] }, s.world.log);
+  assert.ok(
+    project(replayed).transcript.some((l) => l.kind === 'you' && l.text.includes('Olen')),
+    'a rebuilt session must still show what the player typed',
+  );
+});
+
 test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(50, 20).now, 20);
   assert.equal(meter(-5, 20).now, 0);

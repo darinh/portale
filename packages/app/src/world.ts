@@ -52,6 +52,8 @@ export interface World {
 
 export type WorldEvent =
   | { readonly kind: 'began'; readonly scene: string; readonly narration: string }
+  /** What the player typed. In the log because a transcript without it is unreadable. */
+  | { readonly kind: 'said'; readonly text: string }
   | { readonly kind: 'narrated'; readonly text: string }
   | { readonly kind: 'rolled'; readonly roll: Roll; readonly actor: EntityId; readonly why: string }
   | { readonly kind: 'damaged'; readonly target: EntityId; readonly amount: number }
@@ -139,6 +141,8 @@ export function project(w: World): PlayerView {
       switch (e.kind) {
         case 'began':
           return [{ kind: 'dm', text: e.narration }];
+        case 'said':
+          return [{ kind: 'you', text: e.text }];
         case 'narrated':
           return [{ kind: 'dm', text: e.text }];
         case 'rolled': {
