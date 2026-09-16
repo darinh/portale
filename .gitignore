@@ -43,3 +43,6 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Verification run artifacts. Committed proof lives in docs/proof/ instead.
+evidence/
