@@ -71,7 +71,8 @@ Dice are a pure function of seed and turn number, so a session replays exactly.
 
 ```powershell
 cd packages/app
-node --test "test/**/*.test.ts"   # 17 tests, no GPU and no model needed
+npm install                       # typescript, for typechecking only
+node --test "test/**/*.test.ts"   # 26 tests, no GPU and no model needed
 npx tsc --noEmit
 ```
 

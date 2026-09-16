@@ -34,10 +34,17 @@ Preconditions:
 - **Replayable.** Start two sessions with the same seed by posting `{"seed":42}` and drive the
   same utterance in each. The roll lines match. This is the user-visible half of the property
   that `packages/app/test/engine.test.ts` proves directly.
-- **Clamp, drop, cap.** These need a DM that misbehaves on demand, which the UI cannot produce.
-  Prove them with `node --test "test/**/*.test.ts"` in `packages/app`, and prove the tests
-  themselves are real with `node tools/mutate/run.mjs`, which deletes each rule and requires
-  the test named for it to fail.
+- **Clamp, visible to the player.** Under the scripted DM, turn one is a legal attack and
+  every turn after it proposes difficulty 30 and damage 999, both illegal. Drive two turns,
+  then
+  `assert "document.querySelectorAll('.ruled').length > 0" "the ruling reached the transcript"`
+  and
+  `assert "document.body.innerText.includes('the table settles on 25')" "the player was told"`.
+  The roll line on that turn must read `DC 25`, not `DC 30`.
+- **Clamp, drop, cap at the unit level.** The remaining rule paths need a DM that misbehaves
+  in ways the script does not cover. Prove them with `node --test "test/**/*.test.ts"` in
+  `packages/app`, and prove the tests themselves are real with `node tools/mutate/run.mjs`,
+  which deletes each rule and requires the test named for it to fail.
 - **Undecodable.** Assert the mode gate holds on screen.
   `assert "document.querySelector('[data-testid=mode]').textContent === 'exploration'" "scene is out of combat"`.
   The attack op is absent from the schema in exploration, so the model cannot propose one. The
@@ -48,13 +55,16 @@ Preconditions:
 - **Secrets.** Assert DM-only lore is absent.
   `assert "!document.body.innerText.includes('owes the harbourmaster')" "DM-only lore is not in the page"`.
   That string is Marga's private lore and exists only in the server's world.
-- **Proof.** `shot authority-ruling` and `dump authority-ruling` on a turn that produced a
-  `.ruled` line, plus the test and mutation output.
+- **Proof.** `shot authority-ruling` and `dump authority-ruling` on the second scripted turn,
+  which produces a `.ruled` line, plus the test and mutation output.
 
 ## Gotchas
 
 - This feature is mostly invisible when it works. A green screen proves nothing here, which is
   why the unit suite and the mutation run are part of the proof rather than an alternative to it.
+- An earlier build decided every ruling correctly and then discarded it, because the rulings
+  were converted to events in a trailing loop that the early returns jumped over. The screen
+  looked perfect. Assert that the `.ruled` line is present, never merely that no damage landed.
 - The scripted DM deliberately bypasses the schema, since it does not go through the model. That
   is what makes it able to propose illegal actions and exercise the rules layer. Do not read a
   scripted illegal proposal as evidence the schema failed.

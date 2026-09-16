@@ -27,25 +27,40 @@ would only ever be an option to break the game.
 
 **Measurement 2, choice.** The obvious way to exploit measurement 1 is to build the schema
 per turn from live world state, so every closed set the engine already knows becomes an
-enum the decoder enforces. That works, and it has a cost nobody would have predicted.
-Against a fixed unambiguous scene with exactly one defensible target, varying only the
-length of the target enum, `probe-enum.mjs` measured this.
+enum the decoder enforces. That works. What it costs was measured twice, and the first
+measurement was wrong in a way worth recording.
+
+`probe-enum.mjs` first appeared to show choice quality collapsing as the target enum grew,
+scoring 8/8, 4/8 and 3/8 for enum sizes 3, 10 and 25. That experiment was confounded. The
+tempting distractor sat at index 5 of an arbitrarily ordered list, so it was absent from
+the 3-entity condition and present in the larger ones, and it then accounted for almost
+every wrong answer. Length was confounded with distractor identity.
+
+Re-run with the attractor pinned into every condition, the trend disappears.
 
 | Target enum | Target inside the enum | Target correct |
 | --- | --- | --- |
-| 3 entities | 8/8 | 8/8 |
+| 3 entities | 8/8 | 6/8 |
+| 6 entities | 8/8 | 3/8 |
+| 8 entities | 8/8 | 3/8 |
 | 10 entities | 8/8 | 4/8 |
-| 25 entities | 8/8 | 3/8 |
+| 25 entities | 8/8 | 6/8 |
 
-The decoder guarantee never broke. Validity was 24/24 across every condition. Correctness
-collapsed to 37%, and the most common wrong pick was an unarmed old woman knitting by the
-fire rather than the smuggler who had drawn a knife. The four-member `op` enum stayed 8/8
-correct at every size, so enum length is the problem and enums as a mechanism are not.
+Size 25 matches size 3. There is no length effect, and with eight trials a cell these
+differences are not separable anyway.
 
-That finding is binding on the design, and it is the most surprising thing in the run.
-Scoping which entities the DM may act on is not context budgeting. It is a correctness
-invariant, it has a named cap in the types, and a generous target list is actively harmful
-in a way no validity metric will ever report.
+Two things survive, and they are the ones that matter. The decoder guarantee is absolute:
+target-inside-enum was 8/8 in every condition of both runs, 40/40 overall. And reference
+resolution is unreliable on a small model at every list size, which no validity metric can
+see, because in-enum conformance was perfect in the same runs where the model attacked an
+unarmed bystander five times out of eight.
+
+What does NOT survive is the cap that was derived from the retracted trend. `MAX_IN_REACH`
+is a hedge, not a finding. Capping the list does not restore correctness, because length was
+never the mechanism. The plausible fix is the id-to-name table now carried in the prompt,
+since the model must map a description onto an opaque identifier, and that is the step most
+likely to be failing. Re-measure on the production model before treating any number here as
+settled.
 
 Latency is not binding. The 3B managed 14.5 tok/s on a CPU-only box, so a 14B on a 4090 has
 ample headroom and nothing here is contorted to hide a wait.
