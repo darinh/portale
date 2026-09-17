@@ -136,6 +136,34 @@ const MUTANTS = [
     replace: "",
     test: "the transcript records what the player said, not only what the DM said",
   },
+  {
+    rule: "an out-of-character message collapses the op enum",
+    file: "src/director.ts",
+    find: "        enum: brief.outOfCharacter ? (['narrate_only'] as const) : OPS_BY_MODE[brief.mode],",
+    replace: "        enum: OPS_BY_MODE[brief.mode],",
+    test: "an out-of-character message cannot start a fight, because engage is undecodable",
+  },
+  {
+    rule: "the phrases a real player used are detected as out of character",
+    file: "src/director.ts",
+    find: "  /\\bdm\\b[,.!?]?\\s*$/i,",
+    replace: "",
+    test: "the phrases a real player used to address the DM are recognised",
+  },
+  {
+    rule: "op is generated before narration",
+    file: "src/director.ts",
+    find: "      narration: { type: 'string' },",
+    replace: "",
+    test: "the DM decides the mechanics before it writes the prose",
+  },
+  {
+    rule: "characters carry pronouns the DM can read",
+    file: "src/engine.ts",
+    find: "She owes the harbourmaster a debt, and she refers to herself as she.",
+    replace: "Owes the harbourmaster a debt.",
+    test: "the DM is told which pronouns each character uses",
+  },
 ];
 
 function runOne(testName) {

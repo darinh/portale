@@ -34,8 +34,8 @@ export const SCENARIOS: readonly Scenario[] = [
     mode: 'exploration',
     cast: [
       { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false },
-      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler who owes the harbourmaster a debt.', hp: meter(12, 12), hostile: true },
-      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'Wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false },
+      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true },
+      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'He wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false },
     ],
   },
 ];
@@ -88,6 +88,13 @@ export async function takeTurn(session: Session, utterance: string, director: Di
   }
 
   const { events, softFail } = adjudicate(session.world, brief, proposal);
+  session.world = apply(session.world, {
+    kind: 'proposed',
+    op: proposal.op,
+    target: proposal.target,
+    difficulty: proposal.difficulty,
+    damage: proposal.damage,
+  });
   for (const e of events) session.world = apply(session.world, e);
 
   return { view: project(session.world), softFail, breach: null };

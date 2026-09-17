@@ -55,6 +55,18 @@ export type WorldEvent =
   /** What the player typed. In the log because a transcript without it is unreadable. */
   | { readonly kind: 'said'; readonly text: string }
   | { readonly kind: 'narrated'; readonly text: string }
+  /**
+   * What the DM actually asked for, recorded before the engine judged it. Never shown to
+   * the player. Without this the log cannot answer why a session had no mechanics, which
+   * is exactly the question a real ten-turn transcript raised and the log could not answer.
+   */
+  | {
+      readonly kind: 'proposed';
+      readonly op: string;
+      readonly target: string;
+      readonly difficulty: number;
+      readonly damage: number;
+    }
   | { readonly kind: 'rolled'; readonly roll: Roll; readonly actor: EntityId; readonly why: string }
   | { readonly kind: 'damaged'; readonly target: EntityId; readonly amount: number }
   | { readonly kind: 'healed'; readonly target: EntityId; readonly amount: number }
