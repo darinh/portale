@@ -241,6 +241,24 @@ test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(-5, 20).now, 0);
 });
 
+test('bookkeeping tokens never reach the player, even when the DM writes them', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I look around'),
+    proposal({
+      op: 'narrate_only',
+      narration: '~new3 introduces. e_marga watches you, and ~new1 slips in behind e_olen.',
+    }),
+  );
+
+  const narrated = events.find((e) => e.kind === 'narrated');
+  assert.ok(narrated && narrated.kind === 'narrated');
+  assert.ok(!/~new\d/.test(narrated.text), `mint slot leaked: ${narrated.text}`);
+  assert.ok(!/\be_[a-z0-9_]+\b/i.test(narrated.text), `entity id leaked: ${narrated.text}`);
+  assert.match(narrated.text, /Marga/, 'a known id should become the character name, not a placeholder');
+});
+
 test('an out-of-character message cannot start a fight, because engage is undecodable', () => {
   const w = begin(SCENARIO, seed(3));
   const brief = briefFor(w, '// wait, was that last message cut off?');

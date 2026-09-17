@@ -21,6 +21,24 @@ import type { Proposal, SceneBrief } from './director.ts';
 import { apply, entityId } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
+/**
+ * Bookkeeping tokens the model sometimes copies into player-facing prose. Observed live:
+ * a narration that opened with "~new3 introduces.", naming a slot that does not even
+ * exist. Asking the model not to is necessary and not sufficient, so the engine scrubs
+ * them on the way out. This is the boundary doing its job rather than trusting the input.
+ */
+function scrubTokens(text: string, w: World): string {
+  let out = text;
+  for (const e of w.entities.values()) out = out.split(e.id).join(e.name);
+  return out
+    // Matches any slot-shaped token, not only the slots that exist. The model invented
+    // "~new3" in real play, and scrubbing only the declared slots let it straight through.
+    .replace(/~new\d+/gi, 'someone')
+    .replace(/\be_[a-z0-9_]+\b/gi, 'someone')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export type Ruling =
   | { readonly kind: 'applied' }
   | { readonly kind: 'rewrite'; readonly why: string; readonly detail: string }
@@ -65,7 +83,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     emit({ kind: 'ruled', why: r.why, detail: r.detail });
   }
 
-  emit({ kind: 'narrated', text: proposal.narration });
+  emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });
 
   let targetId: EntityId | null = null;
 
