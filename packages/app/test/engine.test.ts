@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { roll, seed } from '../src/dice.ts';
-import { scriptedDirector, briefFor, buildSchema, MINT_SLOTS } from '../src/director.ts';
+import { scriptedDirector, briefFor, buildSchema, isOutOfCharacter, MINT_SLOTS } from '../src/director.ts';
 import type { Proposal } from '../src/director.ts';
 import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
@@ -241,6 +241,62 @@ test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(-5, 20).now, 0);
 });
 
+test('an out-of-character message cannot start a fight, because engage is undecodable', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, '// wait, was that last message cut off?');
+  assert.equal(brief.outOfCharacter, true);
+
+  const schema = buildSchema(brief) as { properties: { op: { enum: string[] } } };
+  assert.deepEqual(schema.properties.op.enum, ['narrate_only'], 'the op enum must collapse to one member');
+  assert.ok(!schema.properties.op.enum.includes('engage'));
+});
+
+test('the out-of-character prefix is stripped before the DM sees it', () => {
+  const w = begin(SCENARIO, seed(3));
+  assert.equal(briefFor(w, '// what did you mean?').utterance, 'what did you mean?');
+  assert.equal(briefFor(w, 'ooc: keep up').utterance, 'keep up');
+});
+
+test('the phrases a real player used to address the DM are recognised', () => {
+  for (const meta of [
+    'It seems like the last message was cut off.  His mouth forms a silent what?',
+    'seriously? I just told you I stabbed him in the eye with a dagger. Keep up, DM.',
+    'wait, you already said that',
+  ]) {
+    assert.equal(isOutOfCharacter(meta), true, `should be out of character: ${meta}`);
+  }
+});
+
+test('ordinary play is never mistaken for an out-of-character aside', () => {
+  for (const inCharacter of [
+    'I draw my blade and strike at Marga',
+    'I ask the barkeep what he knows about the harbourmaster',
+    'I stab marga in his only remaining eye with my hidden dagger',
+    'I tell the dockhand to keep up as we run',
+  ]) {
+    assert.equal(isOutOfCharacter(inCharacter), false, `should be in character: ${inCharacter}`);
+  }
+});
+
+test('the DM decides the mechanics before it writes the prose', () => {
+  const w = begin(SCENARIO, seed(3));
+  const schema = buildSchema(briefFor(w, 'I attack')) as { properties: Record<string, unknown> };
+  const order = Object.keys(schema.properties);
+
+  assert.equal(order[0], 'op', 'op must be generated first');
+  assert.equal(
+    order.at(-1),
+    'narration',
+    'narration must be generated last, or the model picks an op to match prose it already wrote',
+  );
+});
+
+test('the DM is told which pronouns each character uses', () => {
+  const marga = SCENARIO.cast.find((c) => c.name === 'Marga');
+  assert.ok(marga, 'Marga must exist in the scenario');
+  assert.match(marga.lore, /\b(she|her)\b/i, 'real play had the DM calling Marga he all session');
+});
+
 test('a dropped intent reaches the log as a ruling, not just the return value', () => {
   const s = session();
   s.world = apply(s.world, { kind: 'died', target: MARGA });
@@ -307,6 +363,25 @@ test('engage is the way into combat, and it is refused without a foe', () => {
   assert.equal(refused.softFail, true);
 });
 
+test('the blow that starts a fight is resolved, not discarded', () => {
+  const w = begin(SCENARIO, seedThatSucceeds(5, 1));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I stab Marga in the eye'),
+    proposal({ op: 'engage', target: MARGA, difficulty: 5, damage: 4 }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'mode' && e.to === 'combat'), 'it must start combat');
+  assert.ok(
+    events.some((e) => e.kind === 'rolled'),
+    'entering combat must not swallow the attack that started it',
+  );
+  assert.ok(
+    events.some((e) => e.kind === 'damaged'),
+    'the DM narrates a wound on this turn, so the world must take one',
+  );
+});
+
 test('combat is reachable and exits when the last foe falls', () => {
   let w = begin(SCENARIO, seed(5));
   w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA })).events);
@@ -323,7 +398,6 @@ test('combat is reachable and exits when the last foe falls', () => {
 
 test('a minted id is derived from the world, not from a clock or a module counter', () => {
   const a = begin(SCENARIO, seed(99));
-  const b = begin(SCENARIO, seed(99));
   const mk = (w: typeof a) =>
     adjudicate(
       w,
@@ -332,13 +406,18 @@ test('a minted id is derived from the world, not from a clock or a module counte
     ).events.find((e) => e.kind === 'introduced');
 
   const first = mk(a);
-  const second = mk(b);
-  assert.ok(first && first.kind === 'introduced' && second && second.kind === 'introduced');
-  assert.equal(first.entity.id, second.entity.id, 'the same world must mint the same id, or replay diverges');
+  assert.ok(first && first.kind === 'introduced');
 
-  const other = mk(begin(SCENARIO, seed(100)));
-  assert.ok(other && other.kind === 'introduced');
-  assert.notEqual(first.entity.id, other.entity.id, 'different sessions must not collide');
+  // Assert the property directly. Comparing two ids only proves determinism by accident,
+  // because a clock-based id also compares equal inside one millisecond and unequal across
+  // a tick, so the earlier version of this test passed against a Date.now() mutant.
+  assert.ok(
+    first.entity.id.startsWith(`e_m${(99).toString(36)}_`),
+    `the id must begin with the world seed, saw ${first.entity.id}`,
+  );
+
+  assert.equal(mk(begin(SCENARIO, seed(99)))?.entity.id, first.entity.id, 'same world, same id');
+  assert.notEqual(mk(begin(SCENARIO, seed(100)))?.entity.id, first.entity.id, 'different seeds must not collide');
 });
 
 test('the DM is shown older dialogue, not just the most recent turn', async () => {

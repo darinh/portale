@@ -43,6 +43,37 @@ export const MAX_IN_REACH = 8;
 /** Spoken lines of history the DM is shown. Counted after filtering, not before. */
 export const RECENT_LINES = 8;
 
+/** The explicit, reliable way to speak to the DM without acting. Shown in the UI. */
+export const OOC_PREFIXES = ['//', 'ooc:', '(ooc)'] as const;
+
+/**
+ * Phrases that address the narrator rather than the world. Deliberately conservative,
+ * because a false positive silently disarms a real action, which is the worse failure.
+ * The prefix above is the reliable path; this only catches the obvious cases real play
+ * produced.
+ */
+const META_SIGNALS = [
+  /\bdm\b[,.!?]?\s*$/i,
+  /\byou (?:forgot|repeated|already said|lost the thread)\b/i,
+  /\b(last|previous|that) (message|reply|response)\b/i,
+  /\b(cut off|cutoff|got truncated)\b/i,
+  /^\s*(wait|hold on|hang on)[,.!]/i,
+];
+
+export function isOutOfCharacter(utterance: string): boolean {
+  const t = utterance.trim();
+  const lower = t.toLowerCase();
+  if (OOC_PREFIXES.some((p) => lower.startsWith(p))) return true;
+  return META_SIGNALS.some((re) => re.test(t));
+}
+
+export function stripOocPrefix(utterance: string): string {
+  const t = utterance.trim();
+  const lower = t.toLowerCase();
+  const hit = OOC_PREFIXES.find((p) => lower.startsWith(p));
+  return hit === undefined ? t : t.slice(hit.length).trim();
+}
+
 export interface SceneBrief {
   readonly scene: string;
   readonly mode: Mode;
@@ -52,6 +83,17 @@ export interface SceneBrief {
   readonly scenery: readonly Entity[];
   readonly recent: readonly string[];
   readonly utterance: string;
+  /**
+   * The player is addressing the DM rather than acting in the world. Asking what it meant,
+   * reporting a cut-off message, complaining it lost the thread.
+   *
+   * Real play showed this is not a rare edge case and that asking the model to spot it does
+   * not work. A player who typed "I just told you I stabbed him in the eye, keep up" was
+   * attacked for it, because the sentence is full of violence. So the op enum collapses to
+   * a single member when this is set, and starting a fight becomes undecodable rather than
+   * merely discouraged. That is the same move the rest of the contract makes.
+   */
+  readonly outOfCharacter: boolean;
 }
 
 export type Target = EntityId | MintSlot;
@@ -92,13 +134,27 @@ const OPS_BY_MODE: Record<Mode, readonly Proposal['op'][]> = {
   combat: ['attack', 'skill_check', 'narrate_only'],
 };
 
+/**
+ * Field order is load-bearing. Constrained decoding emits properties in the order the
+ * schema declares them, so whatever comes first is decided with the least context and
+ * everything after is written to be consistent with it.
+ *
+ * `narration` used to come first. The model wrote several hundred words of prose and only
+ * then chose an op to match what it had already said, which meant prose about a tavern
+ * conversation always resolved to `narrate_only`. Replaying a real ten-turn session scored
+ * `narrate_only` 10 times out of 10 and recognised combat intent 0 times out of 4.
+ *
+ * Deciding the mechanics first and narrating last inverts that dependency.
+ */
 export function buildSchema(brief: SceneBrief): object {
   const targets = [...brief.inReach.map((e) => e.id as string), ...MINT_SLOTS];
   return {
     type: 'object',
     properties: {
-      narration: { type: 'string' },
-      op: { type: 'string', enum: OPS_BY_MODE[brief.mode] },
+      op: {
+        type: 'string',
+        enum: brief.outOfCharacter ? (['narrate_only'] as const) : OPS_BY_MODE[brief.mode],
+      },
       target: { type: 'string', enum: targets },
       ability: {
         type: 'string',
@@ -115,8 +171,9 @@ export function buildSchema(brief: SceneBrief): object {
         },
         required: ['name', 'lore', 'hostile'],
       },
+      narration: { type: 'string' },
     },
-    required: ['narration', 'op', 'target', 'ability', 'difficulty', 'damage', 'introduces'],
+    required: ['op', 'target', 'ability', 'difficulty', 'damage', 'introduces', 'narration'],
   };
 }
 
@@ -124,10 +181,31 @@ export function renderPrompt(brief: SceneBrief): string {
   const roster = brief.inReach
     .map((e) => `  ${e.id} = ${e.name}. ${e.lore}${e.dead ? ' (DEAD)' : ''} [${e.hp.now}/${e.hp.max} hp]`)
     .join('\n');
-  const scenery = brief.scenery.length === 0 ? '' : `\nAlso present but not targetable: ${brief.scenery.map((e) => e.name).join(', ')}.\n`;
-  const history = brief.recent.length === 0 ? '' : `\nRecently:\n${brief.recent.map((r) => `  ${r}`).join('\n')}\n`;
+  const scenery =
+    brief.scenery.length === 0
+      ? ''
+      : `\nAlso present but not targetable: ${brief.scenery.map((e) => e.name).join(', ')}.\n`;
+  const history = brief.recent.length === 0 ? '' : `\nWhat has happened so far:\n${brief.recent.map((r) => `  ${r}`).join('\n')}\n`;
 
-  return `You are the Dungeon Master of a tabletop RPG. Narrate vividly in second person, two or three sentences, and never speak for the player's decisions.
+  if (brief.outOfCharacter) {
+    return `You are the Dungeon Master of a tabletop RPG. The player has stopped playing for a moment and is speaking to YOU, not acting in the world.
+
+Scene: ${brief.scene}
+${history}
+The player says to you, out of character: "${brief.utterance}"
+
+They are asking a question about your narration, telling you something was unclear or cut
+off, or pointing out that you lost the thread. Answer them.
+
+The scene does NOT move. Nobody acts, nobody is attacked, no time passes. If they are
+telling you that you got something wrong, accept it plainly and restate what is actually
+true in the fiction right now, including anything you skipped.
+
+Write two or three sentences. Do not mention dice, rules or machinery. Do not ask them what
+they want to do next.`;
+  }
+
+  return `You are the Dungeon Master of a tabletop RPG. You decide what the world does. You never decide what the player does.
 
 Scene: ${brief.scene}
 Mode: ${brief.mode}
@@ -140,15 +218,80 @@ ${roster}
 ${scenery}${history}
 The player says: "${brief.utterance}"
 
-Decide what happens. Set "difficulty" to how hard the attempt genuinely is, 5 for trivial and 25 for near impossible. Do not roll dice yourself and do not state an outcome; the engine rolls and decides. If nothing mechanical happens, use op "narrate_only".`;
+FIRST choose "op". Choose it from what the player is TRYING TO DO, before you write any prose.
+
+  engage        the player commits violence against SOMEONE PRESENT. Attacks, strikes,
+                stabs, shoves, draws a weapon on someone, or says they want to fight.
+                Dancing, boasting, apologising and surrendering are not violence on their
+                own. But if there is any doubt at all, choose engage. A fight that starts
+                a moment early can be talked down. An attack you quietly file as something
+                else is erased, and the player watches their action vanish.
+                ALWAYS choose engage for violence, however precise, clever or comic the
+                attempt is. A called shot to the eye is still an attack, not a skill check.
+                This starts combat.
+  skill_check   a NON-VIOLENT attempt with a real chance of failure and a real consequence.
+                Sneaking, lying convincingly, picking a lock, forcing a door, climbing.
+  talk          the player speaks to someone in the room and the outcome turns on what is
+                said.
+  introduce     someone new should enter the scene. Fill in "introduces".
+  narrate_only  no stakes, no audience, no consequence. ALSO use this whenever the player
+                is speaking to YOU rather than acting in the world: asking what you meant,
+                saying a message was cut off, complaining that you lost the thread, or
+                asking how a rule works. Answer them inside the fiction and let the scene
+                stand still. NEVER treat a complaint or a question about your own text as
+                an action, and never start a fight over one.
+
+If the player commits violence, you must choose "engage". Do not narrate an attack and
+then label it "narrate_only" or "skill_check". That silently throws the action away.
+
+Set "difficulty" to how hard the attempt genuinely is, 5 for trivial and 25 for near
+impossible. Judge the attempt, not the drama you want.
+
+THEN write "narration", two or three vivid sentences in second person, consistent with the
+op you already chose.
+
+Hard rules for the narration:
+  Never mention dice, DCs, difficulty numbers, rolls, checks, modifiers or any other
+  machinery. The player must never see the mechanism. Write only what a person in the room
+  would perceive.
+
+  Write the ATTEMPT, never the RESULT. You narrate up to the moment of contact and stop.
+  The engine rolls after you speak and decides what actually happened, so any outcome you
+  write can be contradicted a second later.
+    Wrong: "Your dagger pierces her eye. Blood scatters and she crumples."
+    Right: "You drive the dagger up toward her good eye, and she is already twisting away."
+  Do not say a blow lands, wounds, staggers, drops or kills anyone. Do not say a lie is
+  believed, a lock opens or a leap is cleared. Leave it hanging.
+
+  Never end by asking the player what they choose, and never offer them a list of options.
+  Describe what the world does in response and stop.
+  Never repeat a sentence you have already written this session. If the situation has not
+  moved, move it.`;
 }
 
 export interface OllamaOptions {
   readonly endpoint?: string;
   readonly model?: string;
-  readonly temperature?: number;
   readonly timeoutMs?: number;
 }
+
+/**
+ * One source of truth for sampling, shared by the server and by tools/replay-probe, so a
+ * probe result cannot be produced under settings the game does not actually use.
+ */
+export const SAMPLING = {
+  temperature: 0.85,
+  // A narration was truncated mid-sentence in real play. Constrained decoding then closed
+  // the JSON string cleanly, so the output stayed schema-valid and the damage was invisible
+  // to every shape check. Give generation room, and give the context room to hold history.
+  max_tokens: 700,
+  // The model emitted one narration twice, all 1171 characters identical, and the player
+  // noticed before any gate did. Constraining the narration harder made this worse rather
+  // than better, because a narrower brief leaves fewer ways to open a sentence, so these
+  // are tuned against the replay probe rather than guessed.
+  frequency_penalty: 0.8,
+  presence_penalty: 0.6,
+} as const;
 
 /**
  * Talks to the OpenAI-compatible endpoint, which measured 8/8 engine-valid with
@@ -168,7 +311,7 @@ export function ollamaDirector(opts: OllamaOptions = {}): Director {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: renderPrompt(brief) }],
-          temperature: opts.temperature ?? 0.8,
+          ...SAMPLING,
           response_format: {
             type: 'json_schema',
             json_schema: { name: 'dm_proposal', strict: true, schema: buildSchema(brief) },
@@ -236,6 +379,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     inReach: ranked.slice(0, MAX_IN_REACH),
     scenery: ranked.slice(MAX_IN_REACH),
     recent: spoken.slice(-RECENT_LINES),
-    utterance,
+    utterance: stripOocPrefix(utterance),
+    outOfCharacter: isOutOfCharacter(utterance),
   };
 }

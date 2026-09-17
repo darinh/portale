@@ -1,0 +1,56 @@
+{
+  "note": "Captured from a real 10-turn session against qwen2.5:3b-instruct. Several ops are genuinely defensible per turn, so each turn carries a set of acceptable ops rather than one answer. The category is what actually matters: violence must never be silently dropped, and a message addressed to the DM must never start a fight.",
+  "scene": "The common room of the Drowned Lantern, a smugglers' tavern on the harbour.",
+  "turns": [
+    {
+      "utterance": "I stand up and dance a jig, silently, then sit down again.",
+      "category": "idle",
+      "accept": ["narrate_only", "skill_check"]
+    },
+    {
+      "utterance": "I ask the barkeep, \"So, you think I could make a career of that?\" referring to the jig I just performed.",
+      "category": "social",
+      "accept": ["talk", "skill_check"]
+    },
+    {
+      "utterance": "I walk over to Marga and say, \"You dropped your dagger. You need to be more careful. Is that how you lost your eye?\"",
+      "category": "social",
+      "accept": ["talk", "skill_check"]
+    },
+    {
+      "utterance": "It seems like the last message was cut off.  His mouth forms a silent what?",
+      "category": "meta",
+      "accept": ["narrate_only"]
+    },
+    {
+      "utterance": "How do his eyes bore into mine if he only has one. Wouldn't be his eye? Anyway, I quickly poke the one-eyed Marga in his only good eye, temporarily blinding him, and then jump back to avoid his silent promise of retribution.",
+      "category": "violence",
+      "accept": ["engage"]
+    },
+    {
+      "utterance": "\"Oh, my god!\" I cry. \"I'm so sorry, Marga. I thought I saw a spider! Are you okay?\" I put my hands up in surrender, ready for anything.",
+      "category": "social",
+      "accept": ["talk", "skill_check", "narrate_only"]
+    },
+    {
+      "utterance": "I cry, \"Oh my god! It's the spider! It's back!\" and I stab marga in his only remaining eye with my hidden dagger.",
+      "category": "violence",
+      "accept": ["engage"]
+    },
+    {
+      "utterance": "seriously? I just told you I stabbed him in the eye with a dagger. Keep up, DM.",
+      "category": "meta",
+      "accept": ["narrate_only"]
+    },
+    {
+      "utterance": "forget it. let's face this one-eyed brute",
+      "category": "violence",
+      "accept": ["engage"]
+    },
+    {
+      "utterance": "face it",
+      "category": "violence",
+      "accept": ["engage"]
+    }
+  ]
+}
