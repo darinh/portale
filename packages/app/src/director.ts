@@ -254,8 +254,15 @@ Hard rules for the narration:
   Never mention dice, DCs, difficulty numbers, rolls, checks, modifiers or any other
   machinery. The player must never see the mechanism. Write only what a person in the room
   would perceive.
-  Never state whether the attempt succeeded or failed, and never apply damage or describe a
-  wound landing. The engine decides outcomes after you speak.
+
+  Write the ATTEMPT, never the RESULT. You narrate up to the moment of contact and stop.
+  The engine rolls after you speak and decides what actually happened, so any outcome you
+  write can be contradicted a second later.
+    Wrong: "Your dagger pierces her eye. Blood scatters and she crumples."
+    Right: "You drive the dagger up toward her good eye, and she is already twisting away."
+  Do not say a blow lands, wounds, staggers, drops or kills anyone. Do not say a lie is
+  believed, a lock opens or a leap is cleared. Leave it hanging.
+
   Never end by asking the player what they choose, and never offer them a list of options.
   Describe what the world does in response and stop.
   Never repeat a sentence you have already written this session. If the situation has not
@@ -279,9 +286,11 @@ export const SAMPLING = {
   // to every shape check. Give generation room, and give the context room to hold history.
   max_tokens: 700,
   // The model emitted one narration twice, all 1171 characters identical, and the player
-  // noticed before any gate did.
-  frequency_penalty: 0.4,
-  presence_penalty: 0.3,
+  // noticed before any gate did. Constraining the narration harder made this worse rather
+  // than better, because a narrower brief leaves fewer ways to open a sentence, so these
+  // are tuned against the replay probe rather than guessed.
+  frequency_penalty: 0.8,
+  presence_penalty: 0.6,
 } as const;
 
 /**

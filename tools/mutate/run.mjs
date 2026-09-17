@@ -164,6 +164,13 @@ const MUTANTS = [
     replace: "Owes the harbourmaster a debt.",
     test: "the DM is told which pronouns each character uses",
   },
+  {
+    rule: "the blow that starts a fight is resolved",
+    file: "src/rules.ts",
+    find: "  if (proposal.op === 'attack' || proposal.op === 'engage') {",
+    replace: "  if (proposal.op === 'attack') {",
+    test: "the blow that starts a fight is resolved, not discarded",
+  },
 ];
 
 function runOne(testName) {

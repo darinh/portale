@@ -111,7 +111,10 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
       return { events, rulings, softFail: true };
     }
     if (working.mode !== 'combat') emit({ kind: 'mode', to: 'combat' });
-    return { events, rulings, softFail: false };
+    // Deliberately falls through to resolution. Entering combat and then discarding the
+    // blow that started it would drop the player's action just as surely as the old
+    // narrate_only path did, only less visibly, because the DM narrates a wound that the
+    // world never takes.
   }
 
   if (proposal.op === 'narrate_only' || proposal.op === 'introduce' || proposal.op === 'talk') {
@@ -140,7 +143,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     return { events, rulings, softFail: false };
   }
 
-  if (proposal.op === 'attack') {
+  if (proposal.op === 'attack' || proposal.op === 'engage') {
     let damage = proposal.damage;
     if (damage > MAX_DAMAGE) {
       rule({

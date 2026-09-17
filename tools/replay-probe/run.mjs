@@ -34,6 +34,12 @@ const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "real-session.
 const LEAK = /\b(DC|difficulty|roll(ed|ing)?|d20|check\s+is\s+set|modifier|saving throw)\b/i;
 /** The DM handing the decision back instead of narrating a consequence. */
 const MENU = /\b(choose your path|do you|will you|what do you do)\b[^.?!]*\?/i;
+/**
+ * The DM deciding the outcome itself. It narrates before the engine rolls, so any prose
+ * that lands a blow can be contradicted by the die a moment later. Real play produced
+ * "the hidden dagger pierces Marga's eye" on a turn the roll then failed.
+ */
+const OUTCOME = /\b(pierces|slices|sinks into|buries|connects|lands|strikes home|finds its mark|blood (?:pools|scatters|sprays)|crumples|collapses|staggers back(?:ward)?|screams in (?:pain|agony)|twists in agony)\b/i;
 
 async function propose(brief) {
   const res = await fetch(`${values.endpoint}/chat/completions`, {
@@ -93,6 +99,7 @@ for (const [i, turn] of fixture.turns.entries()) {
   });
   const leaked = LEAK.test(text);
   const menu = MENU.test(text);
+  const decidedOutcome = OUTCOME.test(text);
   const opOk = turn.accept.includes(p.op);
 
   // The two failures that are never defensible, whatever else the DM got right.
@@ -101,12 +108,13 @@ for (const [i, turn] of fixture.turns.entries()) {
 
   seen.push(text);
   world = apply(world, { kind: "narrated", text });
-  results.push({ opOk, truncated, repeated, leaked, menu, droppedViolence, fightOverMeta, category: turn.category });
+  results.push({ opOk, truncated, repeated, leaked, menu, decidedOutcome, droppedViolence, fightOverMeta, category: turn.category });
 
   const flags = [
     opOk ? null : `op=${p.op} accept=${turn.accept.join("|")}`,
     droppedViolence ? "DROPPED-VIOLENCE" : null,
     fightOverMeta ? "FIGHT-OVER-META" : null,
+    decidedOutcome ? "DECIDED-OUTCOME" : null,
     truncated ? "TRUNCATED" : null,
     repeated ? "REPEATED" : null,
     leaked ? "LEAKS-MECHANICS" : null,
@@ -128,6 +136,7 @@ console.log(`    violence silently dropped   ${score("droppedViolence")}/${inCat
 console.log(`    fight started over a meta   ${score("fightOverMeta")}/${inCat("meta")}   <- must be 0`);
 console.log(`  QUALITY`);
 console.log(`    op defensible               ${score("opOk")}/${n}`);
+console.log(`    decided the outcome itself  ${score("decidedOutcome")}/${n}   <- want 0, the die decides`);
 console.log(`    truncated                   ${score("truncated")}/${n}   <- want 0`);
 console.log(`    repeated earlier narration  ${score("repeated")}/${n}   <- want 0`);
 console.log(`    leaked mechanics into prose ${score("leaked")}/${n}   <- want 0`);

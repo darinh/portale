@@ -363,6 +363,25 @@ test('engage is the way into combat, and it is refused without a foe', () => {
   assert.equal(refused.softFail, true);
 });
 
+test('the blow that starts a fight is resolved, not discarded', () => {
+  const w = begin(SCENARIO, seedThatSucceeds(5, 1));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I stab Marga in the eye'),
+    proposal({ op: 'engage', target: MARGA, difficulty: 5, damage: 4 }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'mode' && e.to === 'combat'), 'it must start combat');
+  assert.ok(
+    events.some((e) => e.kind === 'rolled'),
+    'entering combat must not swallow the attack that started it',
+  );
+  assert.ok(
+    events.some((e) => e.kind === 'damaged'),
+    'the DM narrates a wound on this turn, so the world must take one',
+  );
+});
+
 test('combat is reachable and exits when the last foe falls', () => {
   let w = begin(SCENARIO, seed(5));
   w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA })).events);
