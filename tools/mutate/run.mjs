@@ -171,6 +171,13 @@ const MUTANTS = [
     replace: "  if (proposal.op === 'attack') {",
     test: "the blow that starts a fight is resolved, not discarded",
   },
+  {
+    rule: "bookkeeping tokens are scrubbed from narration",
+    file: "src/rules.ts",
+    find: "  emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });",
+    replace: "  emit({ kind: 'narrated', text: proposal.narration });",
+    test: "bookkeeping tokens never reach the player, even when the DM writes them",
+  },
 ];
 
 function runOne(testName) {

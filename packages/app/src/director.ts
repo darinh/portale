@@ -255,6 +255,10 @@ Hard rules for the narration:
   machinery. The player must never see the mechanism. Write only what a person in the room
   would perceive.
 
+  Never write an identifier in the narration. Words like e_marga, ~new1 and ~new2 are
+  bookkeeping and the player must never read one. Use the character's name, or a
+  description if they have not been named yet.
+
   Write the ATTEMPT, never the RESULT. You narrate up to the moment of contact and stop.
   The engine rolls after you speak and decides what actually happened, so any outcome you
   write can be contradicted a second later.
