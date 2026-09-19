@@ -4,8 +4,8 @@ A solo tabletop RPG in the browser, where the Dungeon Master is a locally hosted
 model. Mobile-first, web first.
 
 The DM narrates, runs the NPCs, and decides what you must roll against. It does not decide
-what happens. The engine owns every mechanical outcome, so your hit points cannot drift and
-the DM cannot forget that you are at 2.
+what happens. The engine owns every mechanical outcome, so your hit points cannot drift, the
+world hits back, and the DM cannot talk you to your goal.
 
 ## Run it
 
@@ -39,6 +39,20 @@ $env:PORTALE_DM = "scripted"; node src/server.ts
 | `OLLAMA_ENDPOINT` | `http://127.0.0.1:11434/v1` | OpenAI-compatible endpoint |
 | `OLLAMA_MODEL` | `qwen2.5:3b-instruct` | model to load |
 
+Start a line with `//` to ask the DM a question without acting in the world.
+
+## What is in the game
+
+- **A vow.** Ten Ironsworn boxes. The engine refuses a milestone the turn did not earn, so
+  talking about your goal does not move you toward it.
+- **Clocks.** Blades in the Dark progress clocks, named for outcomes rather than methods, so
+  you can see what is coming and decide whether another attempt is worth the risk.
+- **Places.** Rooms with named exits, and a map that draws only where you have been, with
+  dashed stubs where you have not.
+- **A world that fights back.** Hostiles strike at you every round of combat. You can lose.
+- **Rulings you can read.** When the engine overrules the DM it says so in the fiction.
+
+
 ## Shape
 
 Three tiers and no dependencies. The only package in the tree is TypeScript, for typechecking.
@@ -58,15 +72,24 @@ which omits the DM's private lore.
 Two layers stand between the model and the world, and they are not variations of each other.
 
 **Shape** belongs to the runtime. The JSON Schema is built fresh each turn from live world
-state and passed with the request, so decoding is constrained. An absent target and an
-out-of-mode action are not rejected, they are undecodable. Measured at 8/8 engine-valid
-against 0/8 for both alternatives.
+state and passed with the request, so decoding is constrained. An absent target, an
+out-of-mode action, a direction with no door, a clock that does not exist and a vow you never
+swore are not rejected, they are undecodable. Measured at 8/8 engine-valid against 0/8 for
+both alternatives.
 
 **Legality** belongs to the engine. A schema-valid proposal can still be illegal, so
 `rules.ts` clamps what it can, drops what it cannot, and narrates the ruling rather than
 hiding it. The model is never asked to try again. Refusals are telemetry, not an error log.
 
+The division holds everywhere. The DM proposes a difficulty; the engine clamps it. The DM
+nominates a clock; the engine decides how far it moves. The DM claims a milestone; the engine
+checks whether the turn earned one. The DM never chooses whether the world strikes back.
+
 Dice are a pure function of seed and turn number, so a session replays exactly.
+
+Every DM proposal is recorded as a `proposed` event, never shown to the player. Without it
+the log cannot answer why a session went wrong, which is a question that has come up more
+than once.
 
 ## Develop
 
@@ -133,6 +156,10 @@ CDP, with no Playwright and no browser download. See its feature map for what to
 
 ## State of things
 
-The vertical slice runs, persists, and is tested. `packages/engine/` holds the fuller design
-sketch with unimplemented bodies; it remains the target the slice is growing toward, not dead
-code. Combat mode exists in the model and is only lightly exercised.
+The vertical slice runs, persists, and is tested. `packages/engine/` holds an older, fuller
+design sketch with unimplemented bodies; it is kept for reference and is NOT the running
+code. Everything that runs is in `packages/app/`.
+
+Known gaps. One scenario, four hand-authored rooms, and no generator yet. Clue and lead
+objects do not exist, so the vow advances on any earned turn rather than on discovered
+information. There is no rest, no inventory and no progression beyond the vow track.
