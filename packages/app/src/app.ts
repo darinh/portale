@@ -17,8 +17,9 @@ import { dirname, join, normalize, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { seed } from './dice.ts';
+import type { Seed } from './dice.ts';
 import type { Director } from './director.ts';
-import { SCENARIOS, begin, takeTurn } from './engine.ts';
+import { SCENARIOS, SCENARIO_IDS, begin, scenarioFor, takeTurn } from './engine.ts';
 import type { Session } from './engine.ts';
 import { openStore } from './store.ts';
 import type { Store } from './store.ts';
@@ -92,7 +93,7 @@ export function createApp(deps: AppDeps): App {
   const live = new Map<string, Session>();
   const inFlight = new Set<string>();
 
-  const scenarioById = (id: string) => SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0]!;
+  const scenarioById = (id: string, s: Seed) => scenarioFor(id, s);
 
   /**
    * Rebuilds a session from its event log. The live map is only a cache, so deleting it
@@ -106,7 +107,7 @@ export function createApp(deps: AppDeps): App {
     const stored = store.load(id);
     if (stored === null) return null;
 
-    const scenario = scenarioById(stored.scenario);
+    const scenario = scenarioById(stored.scenario, seed(stored.seed));
     // Derive the blank world from begin() rather than hand-building one. A hand-built base
     // has to be updated every time World grows a field, and silently loses whatever it
     // forgot.
@@ -127,13 +128,16 @@ export function createApp(deps: AppDeps): App {
         return json(res, 200, {
           ok: true,
           dm: deps.director.name,
-          scenarios: SCENARIOS.map((s) => s.id),
+          scenarios: SCENARIO_IDS,
         });
       }
 
       if (req.method === 'GET' && path === '/api/scenarios') {
         return json(res, 200, {
-          scenarios: SCENARIOS.map((s) => ({ id: s.id, title: s.title, scene: s.scene })),
+          scenarios: [
+            ...SCENARIOS.map((s) => ({ id: s.id, title: s.title, scene: s.scene, generated: false })),
+            { id: 'delve', title: 'The undercroft', scene: 'A different dungeon every seed.', generated: true },
+          ],
         });
       }
 
@@ -145,7 +149,7 @@ export function createApp(deps: AppDeps): App {
         const body = await readJson(req);
 
         const wanted = body['scenario'];
-        if (wanted !== undefined && !SCENARIOS.some((s) => s.id === wanted)) {
+        if (wanted !== undefined && !SCENARIO_IDS.includes(wanted as (typeof SCENARIO_IDS)[number])) {
           return json(res, 400, { error: `no such scenario: ${String(wanted)}` });
         }
 
@@ -154,8 +158,8 @@ export function createApp(deps: AppDeps): App {
           return json(res, 400, { error: 'seed must be a finite number' });
         }
 
-        const scenario = scenarioById(String(wanted ?? SCENARIOS[0]!.id));
         const s = seed(typeof rawSeed === 'number' ? rawSeed : Math.floor(Math.random() * 0xffffffff));
+        const scenario = scenarioById(String(wanted ?? SCENARIO_IDS[0]), s);
         const id = randomUUID();
 
         const world = begin(scenario, s);

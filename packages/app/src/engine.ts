@@ -12,6 +12,7 @@ import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
 import { apply, clockId, entityId, locationId, meter, project, vowId } from './world.ts';
 import type { Clock, ClockId, Direction, Entity, EntityId, Location, LocationId, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
+import { generateDelve } from './mapgen.ts';
 
 export interface Scenario {
   readonly id: string;
@@ -24,6 +25,8 @@ export interface Scenario {
   readonly vows: readonly VowDef[];
   readonly start: LocationId;
   readonly mode: World['mode'];
+  /** Where the generator put the payoff. Absent for hand-authored scenarios. */
+  readonly goal?: LocationId;
 }
 
 /** A vow as an author writes it. Always starts unmarked. */
@@ -140,6 +143,18 @@ export const SCENARIOS: readonly Scenario[] = [
 export interface Session {
   readonly id: string;
   world: World;
+}
+
+/** Scenario ids a caller may ask for. Generated ones are built from the session seed. */
+export const SCENARIO_IDS = ['lantern', 'delve'] as const;
+
+/**
+ * Resolves a scenario by id. A generated scenario is a pure function of the seed, which is
+ * what makes it safe to persist only the id and the seed and rebuild the world later.
+ */
+export function scenarioFor(id: string, s: Seed): Scenario {
+  if (id === 'delve') return generateDelve(s);
+  return SCENARIOS.find((x) => x.id === id) ?? SCENARIOS[0]!;
 }
 
 export function begin(scenario: Scenario, s: Seed): World {

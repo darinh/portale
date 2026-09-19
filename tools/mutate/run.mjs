@@ -216,7 +216,7 @@ const MUTANTS = [
   {
     rule: "an unknown scenario is refused",
     file: "src/app.ts",
-    find: "        if (wanted !== undefined && !SCENARIOS.some((s) => s.id === wanted)) {",
+    find: "        if (wanted !== undefined && !SCENARIO_IDS.includes(wanted as (typeof SCENARIO_IDS)[number])) {",
     replace: "        if (false) {",
     test: "an unknown scenario is refused instead of silently falling back",
   },
@@ -408,6 +408,48 @@ const MUTANTS = [
     find: "  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) {",
     replace: "  if (false) {",
     test: "violence with no valid target is still refused",
+  },
+  {
+    rule: "the wandering DM reads the brief rather than a fixed script",
+    file: "src/director.ts",
+    find: "      const foe = brief.inReach.find((e) => e.hostile && !e.dead);",
+    replace: "      const foe = undefined as (typeof brief.inReach)[number] | undefined;",
+    test: "the wandering DM can drive any scenario, including generated ones",
+  },
+  {
+    rule: "the delve has loops rather than being a corridor",
+    file: "src/mapgen.ts",
+    find: "  const extra = loopiness <= 0 ? 0 : Math.max(1, Math.floor(candidates.length * loopiness));",
+    replace: "  const extra = 0;",
+    test: "the graph has loops, because a spanning tree is a corridor",
+  },
+  {
+    rule: "growth is biased toward compact shapes",
+    file: "src/mapgen.ts",
+    find: "      if (score > bestScore) {",
+    replace: "      if (true) {",
+    test: "compact growth buys real loops, not just the one the fallback guarantees",
+  },
+  {
+    rule: "a generated delve is a pure function of its seed",
+    file: "src/mapgen.ts",
+    find: "  let a = (s ^ 0x6d2b79f5) >>> 0;",
+    replace: "  let a = ((s ^ 0x6d2b79f5) + Date.now()) >>> 0;",
+    test: "the same seed always produces the same delve",
+  },
+  {
+    rule: "the goal is placed by graph distance",
+    file: "src/mapgen.ts",
+    find: "  const far = farthest(start, edges, reachable);",
+    replace: "  const far = reachable[1] ?? start;",
+    test: "the goal is placed far from the door, not next to it",
+  },
+  {
+    rule: "nothing hostile starts in the doorway",
+    file: "src/mapgen.ts",
+    find: "  const elsewhere = reachable.filter((c) => key(c) !== key(start));",
+    replace: "  const elsewhere = [...reachable];",
+    test: "the player starts at the entrance and nothing hostile shares it",
   },
 ];
 
