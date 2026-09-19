@@ -349,7 +349,13 @@
       }
 
       async function boot() {
-        if (sessionId) {
+        // ?scenario=delve starts a generated dungeon; ?seed=N makes it reproducible.
+        const params = new URLSearchParams(location.search);
+        const wanted = params.get('scenario');
+        const wantedSeed = params.get('seed');
+        const fresh = wanted !== null || wantedSeed !== null;
+
+        if (sessionId && !fresh) {
           try {
             const { view } = await api(`/api/session/${sessionId}`);
             render(view);
@@ -358,7 +364,12 @@
             localStorage.removeItem('portale.session');
           }
         }
-        const { id, view } = await api('/api/session', { method: 'POST', body: JSON.stringify({}) });
+
+        const body = {};
+        if (wanted !== null) body.scenario = wanted;
+        if (wantedSeed !== null) body.seed = Number(wantedSeed);
+
+        const { id, view } = await api('/api/session', { method: 'POST', body: JSON.stringify(body) });
         sessionId = id;
         localStorage.setItem('portale.session', id);
         render(view);

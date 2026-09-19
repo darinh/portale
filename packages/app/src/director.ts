@@ -432,6 +432,58 @@ export function scriptedDirector(script: readonly Proposal[]): Director {
   };
 }
 
+/**
+ * A model-free DM that reads the brief and picks something legal.
+ *
+ * `scriptedDirector` returns fixed proposals, which means its script is welded to one
+ * scenario. Pointed at a generated delve it names a smuggler who is not there and a clock
+ * that does not exist, and every turn is correctly refused. That makes it useless for
+ * exercising generated content.
+ *
+ * This one derives its answer from the brief, so it is valid in any scenario, and it is
+ * still deterministic. It fights when something hostile is in the room and explores
+ * otherwise, which is enough to walk a whole dungeon in a test.
+ */
+export function wanderingDirector(): Director {
+  let turn = 0;
+  return {
+    name: 'wandering',
+    async propose(brief) {
+      turn += 1;
+      const foe = brief.inReach.find((e) => e.hostile && !e.dead);
+      const anyone = brief.inReach[0];
+      const clock = brief.clocks[0];
+      const vow = brief.vows[0];
+
+      const base = {
+        target: (foe?.id ?? anyone?.id ?? MINT_SLOTS[0]) as Target,
+        direction: brief.exits[turn % Math.max(1, brief.exits.length)] ?? 'out',
+        ability: 'dexterity' as const,
+        difficulty: 12,
+        damage: 4,
+        introduces: null,
+        tick: turn % 3 === 0 && clock !== undefined ? (clock.id as string) : 'none',
+        milestone: turn % 4 === 0 && vow !== undefined ? (vow.id as string) : 'none',
+      };
+
+      if (brief.outOfCharacter) {
+        return { ...base, op: 'narrate_only', narration: 'You are told what you asked.' };
+      }
+      if (foe !== undefined) {
+        return {
+          ...base,
+          op: brief.mode === 'combat' ? 'attack' : 'engage',
+          narration: `${foe.name} moves, and the room narrows to the space between you.`,
+        };
+      }
+      if (brief.exits.length > 0) {
+        return { ...base, op: 'move', narration: 'You take the passage and keep going.' };
+      }
+      return { ...base, op: 'narrate_only', narration: 'Nothing here but the sound of water.' };
+    },
+  };
+}
+
 export function briefFor(w: World, utterance: string): SceneBrief {
   const protagonist = w.entities.get(w.protagonist);
   if (protagonist === undefined) throw new Error('world has no protagonist');
