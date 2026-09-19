@@ -36,6 +36,8 @@ export interface PlayerView {
   readonly scene: string;
   readonly you: { readonly name: string; readonly hp: Meter };
   readonly present: readonly ViewEntity[];
+  /** What the player has discovered. Undiscovered clues are absent, never nulled. */
+  readonly leads: readonly { readonly id: string; readonly what: string; readonly vow: string }[];
   readonly transcript: readonly { readonly kind: string; readonly text: string }[];
 }
 
