@@ -81,6 +81,27 @@ const MUTANTS = [
     test: "the DM cannot reveal a clue that belongs to another room",
   },
   {
+    rule: "nothing is discoverable while a fight is on",
+    file: "src/director.ts",
+    find: "    cluesHere: w.mode === 'combat' ? [] : cluesHere(w),",
+    replace: "    cluesHere: cluesHere(w),",
+    test: "there is nothing to find while a fight is on",
+  },
+  {
+    rule: "the engine also refuses a discovery mid-fight",
+    file: "src/rules.ts",
+    find: "    if (w.mode === 'combat') {",
+    replace: "    if (false) {",
+    test: "a DM that ignores the schema is still refused a discovery mid-fight",
+  },
+  {
+    rule: "the mid-fight check reads the mode the DM was briefed on",
+    file: "src/rules.ts",
+    find: "    if (w.mode === 'combat') {",
+    replace: "    if (working.mode === 'combat') {",
+    test: "the turn a fight starts can still carry the discovery it was offered",
+  },
+  {
     rule: "while clues remain, only discovery advances a vow",
     file: "src/rules.ts",
     find: "    if (stillHidden && !foundSomething()) {",

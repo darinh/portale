@@ -587,7 +587,10 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     exits: [...place.exits.keys()],
     clocks: [...w.clocks.values()].filter((c) => !c.done),
     vows: [...w.vows.values()].filter((v) => !v.done),
-    cluesHere: cluesHere(w),
+    // Nobody searches a room while a knife is coming at them. Offering discoveries during
+    // a fight is not just implausible, it is prompt noise on the turns where getting the
+    // op right matters most, and it invites the DM to answer a swing with a found object.
+    cluesHere: w.mode === 'combat' ? [] : cluesHere(w),
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }
