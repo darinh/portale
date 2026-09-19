@@ -46,6 +46,27 @@ const MUTANTS = [
     test: "a move is not ruled against for a target the op never reads",
   },
   {
+    rule: "the person the player named is ranked into reach",
+    file: "src/director.ts",
+    find: "      Number(mentions(said, b)) - Number(mentions(said, a)) ||",
+    replace: "",
+    test: "a named entity survives the reach cap when the room is crowded",
+  },
+  {
+    rule: "naming beats hostility in the reach ordering",
+    file: "src/director.ts",
+    find: "      Number(mentions(said, b)) - Number(mentions(said, a)) ||",
+    replace: "",
+    test: "whoever the player named is ranked first, ahead even of a hostile",
+  },
+  {
+    rule: "short words in a name do not count as being named",
+    file: "src/director.ts",
+    find: "    .filter((wd) => wd.length >= 3 && !NAME_STOPWORDS.has(wd));",
+    replace: "    .filter((wd) => wd.length >= 1);",
+    test: "a short word in a name does not drag the whole room into first place",
+  },
+  {
     rule: "a clue cannot be revealed twice",
     file: "src/rules.ts",
     find: "    if (clue === undefined || clue.found) {",

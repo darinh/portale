@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { roll, seed } from '../src/dice.ts';
-import { scriptedDirector, briefFor, buildSchema, isOutOfCharacter, MINT_SLOTS } from '../src/director.ts';
+import { scriptedDirector, briefFor, buildSchema, isOutOfCharacter, MAX_IN_REACH, MINT_SLOTS } from '../src/director.ts';
 import type { Proposal } from '../src/director.ts';
 import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
@@ -382,6 +382,66 @@ test('the DM is only offered clues in the room the player is standing in', () =>
     brief.cluesHere.every((c) => c.at === w.here),
     'a clue three rooms away must not be nameable',
   );
+});
+
+test('whoever the player named is ranked first, ahead even of a hostile', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I ask Olen what he saw');
+
+  assert.equal(brief.inReach[0]?.name, 'Olen the barkeep', 'the named bystander outranks the smuggler');
+  assert.ok(
+    brief.inReach.some((e) => e.id === MARGA),
+    'and the hostile is still reachable, just not first',
+  );
+});
+
+test('with nobody named, the hostile still leads', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I look around the room');
+  assert.equal(brief.inReach[0]?.id, MARGA);
+});
+
+test('a named entity survives the reach cap when the room is crowded', () => {
+  let w = begin(SCENARIO, seed(3));
+  // The fillers are HOSTILE on purpose. Without mention-ranking they all sort ahead of a
+  // peaceable barkeep, so Olen is pushed past the cap and the test has something real to
+  // catch. An earlier version used harmless fillers, and Olen survived on insertion order
+  // whether or not the rule existed, which made it a test that proved nothing.
+  for (let i = 0; i < MAX_IN_REACH + 4; i++) {
+    w = apply(w, {
+      kind: 'introduced',
+      entity: {
+        id: entityId(`e_filler_${i}`),
+        name: `Brawler ${i}`,
+        lore: 'Scenery with a grudge.',
+        hp: meter(4, 4),
+        hostile: true,
+        dead: false,
+        power: 1,
+        at: w.here,
+      },
+    });
+  }
+
+  const unnamed = briefFor(w, 'I look around the room');
+  assert.ok(
+    !unnamed.inReach.some((e) => e.name === 'Olen the barkeep'),
+    'with nobody named, a peaceable barkeep really is crowded out',
+  );
+
+  const brief = briefFor(w, 'I ask Olen what he saw');
+  assert.ok(brief.inReach.length <= MAX_IN_REACH, 'the cap still holds');
+  assert.ok(
+    brief.inReach.some((e) => e.name === 'Olen the barkeep'),
+    'the person the player named must never be the one that falls off',
+  );
+});
+
+test('a short word in a name does not drag the whole room into first place', () => {
+  const w = begin(SCENARIO, seed(3));
+  // "A customs officer" is not in this room, but "a" and "the" are in almost any sentence.
+  const brief = briefFor(w, 'I take a drink and look at the fire');
+  assert.equal(brief.inReach[0]?.id, MARGA, 'articles must not count as naming anyone');
 });
 
 test('an undiscovered clue never reaches the browser', () => {

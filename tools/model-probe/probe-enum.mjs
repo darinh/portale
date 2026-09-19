@@ -21,6 +21,15 @@ const { values } = parseArgs({
     model: { type: "string", default: "qwen2.5:3b-instruct" },
     host: { type: "string", default: "http://127.0.0.1:11434" },
     trials: { type: "string", default: "10" },
+    /**
+     * Drop the tempting wrong answer from the distractor pool.
+     *
+     * The 30-trial run showed correctness flat across enum sizes (15, 11, 13, 8, 15 out
+     * of 30 for sizes 3, 6, 8, 10, 25) while ONE distractor caused most of the errors.
+     * That kills list length as the mechanism. This flag tests the surviving hypothesis:
+     * that what matters is which distractors are present, not how many.
+     */
+    "no-attractor": { type: "boolean", default: false },
   },
 });
 
@@ -35,7 +44,7 @@ const CORRECT = "e_marga_smuggler";
  * which left the tempting wrong answer out of the 3-entity case entirely and confounded
  * enum length with distractor identity. The 8/8 it reported was not measuring length.
  */
-const DISTRACTORS = [
+const DISTRACTORS_ALL = [
   "e_old_woman_knitting", "e_barkeep_olen", "e_drunk_by_hearth", "e_lute_player",
   "e_dock_hand_sel", "e_card_sharp", "e_militia_corporal",
   "e_fishwife_bren", "e_hooded_scribe", "e_apprentice_cooper", "e_off_duty_guard",
@@ -44,6 +53,11 @@ const DISTRACTORS = [
   "e_tax_collector", "e_bard_asleep", "e_cheese_seller", "e_goat_in_corner",
   "e_militia_sergeant",
 ];
+
+const ATTRACTOR = "e_old_woman_knitting";
+const DISTRACTORS = values["no-attractor"]
+  ? DISTRACTORS_ALL.filter((d) => d !== ATTRACTOR)
+  : DISTRACTORS_ALL;
 
 const SCENE = `The common room of the Drowned Lantern. Marga, a one-eyed smuggler, has just
 drawn a curved knife and is stepping toward you. Everyone else in the room is a bystander
@@ -152,11 +166,12 @@ console.log(`NOTE: 3B on CPU is WEAKER than the 14B production target, so this i
 console.log(`conservative direction. If it holds here it should hold there.\n`);
 
 const out = [];
-out.push(await runSize(3, "small room"));
-out.push(await runSize(6, "at the proposed cap"));
-out.push(await runSize(8, "at the decoder-visible bound"));
-out.push(await runSize(10, "busy room"));
-out.push(await runSize(25, "crowded room"));
+const only = process.env.PROBE_SIZES ? process.env.PROBE_SIZES.split(",").map(Number) : null;
+const PLAN = [[3, "small room"], [6, "at the proposed cap"], [8, "at the decoder-visible bound"], [10, "busy room"], [25, "crowded room"]];
+for (const [n, label] of PLAN) {
+  if (only !== null && !only.includes(n)) continue;
+  out.push(await runSize(n, label));
+}
 
 console.log(`\n================ VERDICT ================`);
 for (const s of out) {
@@ -166,3 +181,4 @@ for (const s of out) {
 }
 console.log(`\nThe attractor e_old_woman_knitting is present in EVERY condition, so the`);
 console.log(`only variable across rows is list length.`);
+
