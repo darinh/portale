@@ -127,11 +127,13 @@ Use these stable handles rather than positions or classes.
 | `[data-testid=clock-<id>]` | one clock; `dataset.filled` is its segments |
 | `[data-testid=exits]` | the ways out of this room |
 | `[data-testid=exit-<dir>]` | one exit button, disabled in combat |
+| `[data-testid=leads]` | what the player has discovered, `hidden` until they know something |
+| `[data-testid=lead-<id>]` | one discovered clue |
 | `[data-testid=mapwrap]` | the map, `hidden` until a second room is known |
 | `[data-testid=map]` | the map SVG itself |
 | `document.body.dataset.busy` | present while a turn is in flight |
 | `document.body.dataset.mode` | exploration or combat, without reading text |
-| `.you` `.dm` `.roll` `.mech` `.ruled` `.move` `.clock` `.vow` | transcript line kinds |
+| `.you` `.dm` `.roll` `.mech` `.ruled` `.move` `.clock` `.vow` `.clue` | transcript line kinds |
 
 Always gate on `!document.body.dataset.busy` after clicking Act. A fixed sleep will pass
 before the model has answered and capture an empty screen.

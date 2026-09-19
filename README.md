@@ -52,8 +52,11 @@ shareable and a session rebuilds identically.
 
 ## What is in the game
 
-- **A vow.** Ten Ironsworn boxes. The engine refuses a milestone the turn did not earn, so
-  talking about your goal does not move you toward it.
+- **A vow.** Ten Ironsworn boxes. The engine refuses a milestone the turn did not earn, and
+  while clues remain unfound the only thing that earns one is discovering something. You
+  cannot fight your way to knowing who holds the debt.
+- **Clues.** Placed in rooms, following the three-clue rule, so no single missed roll can
+  strand a session. The DM may only reveal what is in the room you are standing in.
 - **Clocks.** Blades in the Dark progress clocks, named for outcomes rather than methods, so
   you can see what is coming and decide whether another attempt is worth the risk.
 - **Places.** Rooms with named exits, and a map that draws only where you have been, with
@@ -168,6 +171,5 @@ CDP, with no Playwright and no browser download. See its feature map for what to
 The game runs, persists, and is tested. Everything that runs is in `packages/app/`;
 [`docs/design/module-map.md`](docs/design/module-map.md) is a file-by-file map of it.
 
-Known gaps. Clue and lead objects do not exist, so a vow advances on any earned turn rather
-than on discovered information. There is no rest, no inventory, and no progression beyond the
-vow track. Generated delves reuse one prose table, so they vary in shape more than in voice.
+Known gaps. There is no rest, no inventory, and no progression beyond the vow track.
+Generated delves reuse one prose table, so they vary in shape more than in voice.
