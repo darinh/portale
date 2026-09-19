@@ -945,6 +945,53 @@ test('the DM decides the mechanics before it writes the prose', () => {
     'narration',
     'narration must be generated last, or the model picks an op to match prose it already wrote',
   );
+  assert.ok(
+    order.indexOf('reveals') < order.indexOf('narration'),
+    'the clue is chosen before the prose, so the prose can describe the clue',
+  );
+});
+
+test('a clue in another room is undecodable, not merely refused', () => {
+  const w = begin(SCENARIO, seed(3));
+  const schema = buildSchema(briefFor(w, 'I search')) as { properties: { reveals: { enum: string[] } } };
+
+  assert.ok(schema.properties.reveals.enum.includes('c_ledger_page'), 'what is here can be revealed');
+  assert.ok(
+    !schema.properties.reveals.enum.includes('c_manifest'),
+    'what is three rooms away must not even be expressible',
+  );
+  assert.ok(schema.properties.reveals.enum.includes('none'), 'and the DM may always decline');
+});
+
+test('a clue already found leaves the schema', () => {
+  let w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I search behind the bar'),
+    proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }),
+  );
+  w = fold(w, events);
+
+  const schema = buildSchema(briefFor(w, 'I search again')) as { properties: { reveals: { enum: string[] } } };
+  assert.ok(
+    !schema.properties.reveals.enum.includes('c_ledger_page'),
+    'handing the same clue over twice must be undecodable, not just ruled against',
+  );
+});
+
+test('a room with nothing left to find still produces a legal schema', () => {
+  let w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I search behind the bar'),
+    proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }),
+  );
+  w = fold(w, events);
+
+  const schema = buildSchema(briefFor(w, 'I look around')) as { properties: { reveals: { enum: string[] } } };
+  // JSON Schema forbids an empty enum. The common room has exactly one clue, so once it is
+  // found this is the empty case, and it must still decode rather than throw.
+  assert.deepEqual(schema.properties.reveals.enum, ['none']);
 });
 
 test('the DM is told which pronouns each character uses', () => {
