@@ -16,7 +16,7 @@
  * be named, because it is not in the enum.
  */
 
-import type { Clock, Direction, Entity, EntityId, Location, Mode, World } from './world.ts';
+import type { Clock, Direction, Entity, EntityId, Location, Mode, Vow, World } from './world.ts';
 import { presentHere, reprisalActor } from './world.ts';
 
 /**
@@ -106,6 +106,8 @@ export interface SceneBrief {
   readonly exits: readonly Direction[];
   /** Clocks still running. The DM may advance one of these, and invent none. */
   readonly clocks: readonly Clock[];
+  /** Vows still open. The DM may claim progress on one; the engine decides if it counts. */
+  readonly vows: readonly Vow[];
 }
 
 export type Target = EntityId | MintSlot;
@@ -125,6 +127,14 @@ export interface Proposal {
    * invent it, and cannot quietly resolve a threat because the moment felt dramatic.
    */
   readonly tick: string;
+  /**
+   * A vow this turn advanced, or 'none'. Enum built from vows still open.
+   *
+   * The engine refuses the claim unless the turn actually produced something: a successful
+   * roll, a wound, a death, a filled clock, or a move. Otherwise a narrator could talk the
+   * player to their goal, which is the yes-manning failure with extra ceremony.
+   */
+  readonly milestone: string;
 }
 
 export interface Director {
@@ -205,9 +215,10 @@ export function buildSchema(brief: SceneBrief): object {
         required: ['name', 'lore', 'hostile'],
       },
       tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },
+      milestone: { type: 'string', enum: ['none', ...brief.vows.map((v) => v.id as string)] },
       narration: { type: 'string' },
     },
-    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'narration'],
+    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'milestone', 'narration'],
   };
 }
 
@@ -225,6 +236,12 @@ export function renderPrompt(brief: SceneBrief): string {
       ? ''
       : `\nPressure already in play. You may advance ONE of these with "tick", or "none":\n${brief.clocks
           .map((c) => `  ${c.id} = ${c.name} (${c.filled}/${c.segments})`)
+          .join('\n')}\n`;
+  const vows =
+    brief.vows.length === 0
+      ? ''
+      : `\nWhat the player is trying to achieve. You may claim ONE of these advanced this turn with "milestone", or "none":\n${brief.vows
+          .map((v) => `  ${v.id} = ${v.what} (${v.rank})`)
           .join('\n')}\n`;
   const reprisal =
     brief.reprisalBy === null
@@ -263,7 +280,7 @@ ${roster}
   ~new1, ~new2 = someone NEW walking into the scene. Use one of these as "target" with
                  whatever op fits, and fill in "introduces" with their name and who they
                  are. Leave "introduces" null for everything else.
-${scenery}${history}${clocks}${reprisal}
+${scenery}${history}${clocks}${vows}${reprisal}
 The player says: "${brief.utterance}"
 
 FIRST choose "op". Choose it from what the player is TRYING TO DO, before you write any prose.
@@ -301,6 +318,10 @@ the player is loud, violent, careless or slow. Advance a progress clock when the
 ground toward it. Do not tick a clock every turn out of habit, and do not tick one just
 because the scene felt tense. A clock that moves for no reason teaches the player to ignore
 it.
+
+Set "milestone" to a vow this turn genuinely moved forward, or "none". Real ground earned
+counts: a secret prised loose, an obstacle beaten, a door opened. Talking about the goal
+does not count, and the engine will refuse the claim if nothing actually happened.
 
 THEN write "narration", two or three vivid sentences in second person, consistent with the
 op you already chose.
@@ -447,6 +468,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     place,
     exits: [...place.exits.keys()],
     clocks: [...w.clocks.values()].filter((c) => !c.done),
+    vows: [...w.vows.values()].filter((v) => !v.done),
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }

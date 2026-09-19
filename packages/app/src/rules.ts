@@ -18,7 +18,7 @@
 
 import { roll } from './dice.ts';
 import type { Proposal, SceneBrief } from './director.ts';
-import { apply, clockId, entityId, presentHere, reprisalActor } from './world.ts';
+import { apply, clockId, entityId, presentHere, reprisalActor, vowId, TICKS_PER_MILESTONE, VOW_TICKS } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
 /**
@@ -131,10 +131,62 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
    * stranded behind an early return. The enemy acts whether or not the player's swing
    * landed, which is the entire point of having an enemy.
    */
+  /**
+   * A milestone claim is only honoured when the turn actually produced something. Without
+   * this a narrator could walk the player to their goal on pure prose, which is the
+   * yes-manning failure wearing a progress bar.
+   */
+  function earnedSomething(): boolean {
+    return events.some(
+      (e) =>
+        (e.kind === 'rolled' && e.roll.success && e.actor === w.protagonist) ||
+        e.kind === 'damaged' ||
+        e.kind === 'died' ||
+        e.kind === 'filled' ||
+        e.kind === 'moved',
+    );
+  }
+
+  function applyMilestone(): void {
+    if (proposal.milestone === 'none') return;
+
+    const vow = working.vows.get(vowId(proposal.milestone));
+    if (vow === undefined || vow.done) {
+      rule({
+        kind: 'drop',
+        why: 'no-such-vow',
+        detail: 'The DM claimed ground on something you never swore to.',
+      });
+      return;
+    }
+    if (!earnedSomething()) {
+      rule({
+        kind: 'drop',
+        why: 'unearned-milestone',
+        detail: 'Talking about it is not the same as doing it.',
+      });
+      return;
+    }
+
+    emit({
+      kind: 'progressed',
+      vow: vow.id,
+      by: TICKS_PER_MILESTONE[vow.rank],
+      why: proposal.op,
+    });
+
+    const after = working.vows.get(vow.id);
+    if (after !== undefined && after.progress >= VOW_TICKS) {
+      emit({ kind: 'fulfilled', vow: after.id });
+    }
+  }
+
   function finish(softFail: boolean): Adjudication {
     // Clocks advance before the world's turn, so a tick that fills a danger clock lands
     // before the foe swings rather than after the dust has settled.
     applyTick();
+    // Milestones last, because they judge what the rest of the turn produced.
+    applyMilestone();
 
     if (working.mode === 'combat') {
       const you = working.entities.get(working.protagonist);
@@ -245,7 +297,10 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     return finish(false);
   }
 
-  if (targetId === null) {
+  // Only violence needs a real target. A skill check is the player attempting something
+  // against a difficulty, so a bad target should not cost them the turn. Telemetry showed
+  // the DM picking a mint slot for a quiet bribe and the whole turn being thrown away.
+  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) {
     return finish(true);
   }
 
@@ -267,7 +322,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     return finish(false);
   }
 
-  if (proposal.op === 'attack' || proposal.op === 'engage') {
+  if ((proposal.op === 'attack' || proposal.op === 'engage') && targetId !== null) {
     let damage = proposal.damage;
     if (damage > MAX_DAMAGE) {
       rule({

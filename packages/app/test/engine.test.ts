@@ -13,7 +13,7 @@ import type { Proposal } from '../src/director.ts';
 import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
 import { adjudicate } from '../src/rules.ts';
-import { apply, clockId, entityId, fold, meter, project } from '../src/world.ts';
+import { apply, clockId, entityId, fold, meter, project, vowId, TICKS_PER_MILESTONE } from '../src/world.ts';
 
 const SCENARIO = SCENARIOS[0]!;
 const MARGA = entityId('e_marga');
@@ -29,6 +29,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     damage: 4,
     introduces: null,
     tick: 'c_harbourmaster',
+    milestone: 'none',
     ...over,
   };
 }
@@ -244,6 +245,85 @@ test('a meter clamps on construction rather than trusting its caller', () => {
 });
 
 const HARBOUR = clockId('c_harbourmaster');
+const DEBT = vowId('v_debt');
+
+test('a vow gives the session a point, and the player can see the track', () => {
+  const view = project(begin(SCENARIO, seed(3)));
+  assert.equal(view.vows.length, 1, 'the player starts with something to achieve');
+  assert.equal(view.vows[0]!.boxes, 0);
+  assert.equal(view.vows[0]!.done, false);
+  assert.match(view.vows[0]!.what, /debt/i);
+});
+
+test('a milestone claim is refused when the turn achieved nothing', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I muse about the harbourmaster'),
+    proposal({ op: 'narrate_only', milestone: DEBT }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'unearned-milestone'));
+  assert.equal(events.some((e) => e.kind === 'progressed'), false, 'talk must not move the track');
+});
+
+test('a milestone lands when the turn actually produced something', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I slip down to the cellar to look for the ledger'),
+    proposal({ op: 'move', direction: 'down', milestone: DEBT }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'moved'), 'this turn did something');
+  const marked = events.find((e) => e.kind === 'progressed');
+  assert.ok(marked && marked.kind === 'progressed');
+  assert.equal(marked.by, TICKS_PER_MILESTONE.dangerous, 'the rank sets the step, not the model');
+});
+
+test('a vow the player never swore is refused', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I go down'),
+    proposal({ op: 'move', direction: 'down', milestone: 'v_invented' }),
+  );
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'no-such-vow'));
+});
+
+test('a vow can be fulfilled, once, and then leaves the enum', () => {
+  let w = begin(SCENARIO, seed(3));
+  let fulfilments = 0;
+
+  for (let i = 0; i < 12; i++) {
+    const dir = i % 2 === 0 ? 'down' : 'up';
+    const { events } = adjudicate(
+      w,
+      briefFor(w, 'onward'),
+      proposal({ op: 'move', direction: dir, milestone: DEBT }),
+    );
+    fulfilments += events.filter((e) => e.kind === 'fulfilled').length;
+    w = fold(w, events);
+  }
+
+  assert.equal(w.vows.get(DEBT)!.done, true, 'the vow must be completable');
+  assert.equal(fulfilments, 1, 'and fulfilled exactly once');
+  assert.ok(!briefFor(w, 'x').vows.some((v) => v.id === DEBT), 'a kept vow leaves the enum');
+});
+
+test('the vow track replays rather than stamping the final value', () => {
+  let w = begin(SCENARIO, seed(3));
+  for (let i = 0; i < 3; i++) {
+    const dir = i % 2 === 0 ? 'down' : 'up';
+    w = fold(w, adjudicate(w, briefFor(w, 'on'), proposal({ op: 'move', direction: dir, milestone: DEBT })).events);
+  }
+
+  const shown = project(w)
+    .transcript.filter((l) => l.kind === 'vow')
+    .map((l) => l.text.split('  ').at(-1));
+
+  assert.deepEqual(shown, ['2/10', '4/10', '6/10'], 'each mark shows the track at that moment');
+});
 
 test('the DM can advance pressure that exists, one segment at a time', () => {
   const w = begin(SCENARIO, seed(3));
@@ -252,6 +332,31 @@ test('the DM can advance pressure that exists, one segment at a time', () => {
 
   const after = fold(w, adjudicate(w, briefFor(w, 'I shout'), proposal({ tick: HARBOUR })).events);
   assert.equal(after.clocks.get(HARBOUR)!.filled, 1, 'the engine decides the step, not the model');
+});
+
+test('a skill check still happens when the DM fumbles the target', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events, softFail } = adjudicate(
+    w,
+    briefFor(w, 'I slide a coin across the bar and ask quietly'),
+    proposal({ op: 'skill_check', target: MINT_SLOTS[0], introduces: null, difficulty: 10 }),
+  );
+
+  // Telemetry from a real session showed op=skill_check target=~new1, and the whole turn
+  // was thrown away. A check is against a difficulty, not against a person.
+  assert.ok(events.some((e) => e.kind === 'rolled'), 'the check must still be rolled');
+  assert.equal(softFail, false, 'the turn must not be wasted over a target that did not matter');
+});
+
+test('violence with no valid target is still refused', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events, softFail } = adjudicate(
+    w,
+    briefFor(w, 'I stab the ghost'),
+    proposal({ op: 'attack', target: entityId('e_nobody') }),
+  );
+  assert.equal(softFail, true, 'an attack needs someone to attack');
+  assert.equal(events.some((e) => e.kind === 'damaged'), false);
 });
 
 test('a clock the DM invented is refused', () => {

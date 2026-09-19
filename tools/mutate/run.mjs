@@ -167,8 +167,8 @@ const MUTANTS = [
   {
     rule: "the blow that starts a fight is resolved",
     file: "src/rules.ts",
-    find: "  if (proposal.op === 'attack' || proposal.op === 'engage') {",
-    replace: "  if (proposal.op === 'attack') {",
+    find: "  if ((proposal.op === 'attack' || proposal.op === 'engage') && targetId !== null) {",
+    replace: "  if (proposal.op === 'attack' && targetId !== null) {",
     test: "the blow that starts a fight is resolved, not discarded",
   },
   {
@@ -244,8 +244,8 @@ const MUTANTS = [
   {
     rule: "a reprisal survives a dropped intent",
     file: "src/rules.ts",
-    find: "  if (targetId === null) {",
-    replace: "  if (targetId === null) { return { events, rulings, softFail: true };",
+    find: "  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) {",
+    replace: "  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) { return { events, rulings, softFail: true };",
     test: "the reprisal happens even when the whole intent was dropped",
   },
   {
@@ -359,6 +359,55 @@ const MUTANTS = [
     find: "        const at = Math.max(0, Math.min((running.get(e.clock) ?? 0) + e.by, c.segments));",
     replace: "        const at = c.filled;",
     test: "the transcript replays clock values rather than stamping the final one",
+  },
+  {
+    rule: "a milestone must be earned",
+    file: "src/rules.ts",
+    find: "    if (!earnedSomething()) {",
+    replace: "    if (false) {",
+    test: "a milestone claim is refused when the turn achieved nothing",
+  },
+  {
+    rule: "a vow the player never swore is refused",
+    file: "src/rules.ts",
+    find: "    if (vow === undefined || vow.done) {",
+    replace: "    if (false) {",
+    test: "a vow the player never swore is refused",
+  },
+  {
+    rule: "vow rank sets the size of a milestone",
+    file: "src/rules.ts",
+    find: "      by: TICKS_PER_MILESTONE[vow.rank],",
+    replace: "      by: 1,",
+    test: "a milestone lands when the turn actually produced something",
+  },
+  {
+    rule: "a kept vow leaves the enum",
+    file: "src/director.ts",
+    find: "    vows: [...w.vows.values()].filter((v) => !v.done),",
+    replace: "    vows: [...w.vows.values()],",
+    test: "a vow can be fulfilled, once, and then leaves the enum",
+  },
+  {
+    rule: "the vow track replays",
+    file: "src/world.ts",
+    find: "        const at = Math.max(0, Math.min((vowRunning.get(e.vow) ?? 0) + e.by, VOW_TICKS));",
+    replace: "        const at = v.progress;",
+    test: "the vow track replays rather than stamping the final value",
+  },
+  {
+    rule: "a skill check survives a fumbled target",
+    file: "src/rules.ts",
+    find: "  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) {",
+    replace: "  if (targetId === null) {",
+    test: "a skill check still happens when the DM fumbles the target",
+  },
+  {
+    rule: "violence still needs a target",
+    file: "src/rules.ts",
+    find: "  if (targetId === null && (proposal.op === 'attack' || proposal.op === 'engage')) {",
+    replace: "  if (false) {",
+    test: "violence with no valid target is still refused",
   },
 ];
 
