@@ -201,6 +201,11 @@ Evidence survives cleanup. Never delete `--out`.
   Run it after changing the model, the prompt, or the schema.
 - `tools/replay-probe/` scores the DM against a real recorded session. Run it after any
   prompt or schema change, because it catches quality regressions the unit tests cannot see.
+  Use `--repeat 3`: one pass is ten turns at temperature 0.85, and on known-good code a
+  single pass reports a fatal failure about a third of the time. Comparing two branches by
+  one pass each compares coin flips. Baseline at `--repeat 3` is 0/12 violence dropped, 0/6
+  fight-over-meta, 26/30 op defensible.
+  It never calls `adjudicate`, so a change to `rules.ts` cannot move its score.
 - `tools/mutate/run.mjs` proves each engine rule is covered by the test named for it. Run it
   after changing anything in `packages/app/src/rules.ts` or `packages/app/src/app.ts`.
 
