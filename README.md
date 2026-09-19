@@ -165,9 +165,8 @@ CDP, with no Playwright and no browser download. See its feature map for what to
 
 ## State of things
 
-The game runs, persists, and is tested. `packages/engine/` holds an older, fuller design
-sketch with unimplemented bodies; it is kept for reference and is NOT the running code.
-Everything that runs is in `packages/app/`.
+The game runs, persists, and is tested. Everything that runs is in `packages/app/`;
+[`docs/design/module-map.md`](docs/design/module-map.md) is a file-by-file map of it.
 
 Known gaps. Clue and lead objects do not exist, so a vow advances on any earned turn rather
 than on discovered information. There is no rest, no inventory, and no progression beyond the

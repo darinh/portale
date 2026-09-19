@@ -1,319 +1,234 @@
 # Module map
 
-Eleven modules in one package, `@portale/engine`, plus a thin HTTP host and the client. The
-hierarchy is flat, not deep. `engine` calls its peers and every one of those peers is a
-leaf. Tracing any question, such as "where does damage get clamped?" or "who decides the
-DC?" or "what stops the DM stabbing the wrong person?", lands in exactly one file. Breadth
-under one orchestrator is not a deep call chain.
+Eleven files in `packages/app/src`, no build step, no bundler. Node 24 runs the TypeScript
+directly, so every relative import carries its `.ts` extension and `tsc` runs only as a
+checker. The only package in the tree is TypeScript itself.
 
-Modules are grouped by the knowledge they own, never by when they run. The pair that looks
-most like temporal decomposition, `world` and `adjudicator`, is addressed explicitly below.
+Modules are grouped by the knowledge they own, never by when they run. Tracing a question —
+"where does damage get clamped?", "who decides the DC?", "what stops the DM stabbing someone
+in another room?" — should land in exactly one file.
 
-Node 24 runs these files directly. There is no transpiler, no bundler and no build step, so
-every relative import carries its `.ts` extension and `tsc` runs only as a checker.
-
----
-
-## `ids.ts`, identity and bounded arithmetic
-
-**Owns** every semantic primitive in the system and the arithmetic that cannot go wrong.
-`Meter` clamps. `Coin` cannot be negative. `debit` refuses rather than clamps. Branding
-means an `EntityId` can never be passed where a `FactId` belongs.
-
-**Public** the brands, `meter` and `shift` and `isFull`, `coin` and `debit` and `credit`,
-`mintEntityId` and `mintFactId`.
-
-**Why it is a module and not a util file.** "You cannot heal past max HP" lives here as a
-construction, so no other module contains that rule and no other module can get it wrong.
-Small surface, one non-negotiable invariant each, zero callers who need to know how.
+The whole design is one sentence: **the DM proposes, the engine disposes.** Every module
+below is either the proposal side, the disposal side, or the seam between them.
 
 ---
 
 ## `world.ts`, what a legal world is
 
-**Owns** `Entity` and the Ledger and Lore split, which is the design's central claim. Also
-`Fact`, `Aspect` cardinality, `Scene`, `PlayMode`, `Recap`, `World`, and the reducer.
+**Owns** the domain. `Entity`, `Location`, `Clock`, `Vow`, `World`, the `WorldEvent` union,
+and the branded id types that stop a `ClockId` being passed where a `VowId` belongs. `meter`
+clamps on construction, so "you cannot heal past max" is a property of the type rather than a
+rule someone has to remember.
 
-**Public** `applyEvent`, `project`, `currentLore`, `invariantsHold`, `ASPECT_CARDINALITY`,
-and the types.
+**Public** `apply`, `fold`, `project`, `presentHere`, `reprisalActor`, the constructors
+`entityId` / `locationId` / `clockId` / `vowId`, and `TICKS_PER_MILESTONE`.
 
-**Changed by graft 3.** `Scene` is discriminated by `mode`, either `exploration` or
-`combat`, and `PlayMode` is derived from it. Mode is the discriminant rather than a flag
-beside one, because it selects the op list that is generated into the per-turn schema. The
-regime is still data and there is still one pipeline.
+**The obligation that defines this module.** `apply` is total and trusting. It never rejects,
+never rolls, never decides. It is handed an event that has already been judged and it folds
+it in. That is what makes `fold` a faithful replay: if `apply` could refuse, a replayed log
+would diverge from the session it came from.
 
-**The obligation that defines this module.** `applyEvent` is total and trusting. It never
-validates, never rejects, never throws. Events in the log were adjudicated when they were
-written, and re-checking them on replay would mean a rules change in March could stop a
-February session from loading.
+**`project` is the security boundary.** It builds `PlayerView`, the only thing the browser
+ever receives. DM-only `lore` is absent, secret clocks are filtered out, and the map carries
+visited rooms only, with an exit's destination nulled until you have been there. A field that
+never enters `PlayerView` cannot leak.
 
----
-
-## `proposal.ts`, the model contract and its breach
-
-**Owns** the entire vocabulary in which the model may change the world. `Target`,
-`Approach`, `Band`, `Effect`, `CheckRequest`, `Move`, `Proposal`, `Told`. Also the contract
-policy tables, `BAND_TARGET`, `BAND_REQUIRES_CITATION` and `AFFORDANCES`. And, since graft
-1, `ContractBreachReason` and `DirectorContractBreach`.
-
-**Public** the types, the tables, `affordances(mode)`, and the error class.
-
-**Why `affordances` lives here rather than in `adjudicator`.** It is a statement about which
-ops the contract offers in which mode, keyed by `PlayMode` and nothing else. It sits beside
-the op union it constrains, and putting it here keeps `adjudicator` free to import
-`SceneBrief` without a cycle.
-
-**Why the breach type lives here.** A breach is a violation of this contract. Both the
-module that parses the wire, `director`, and the module that re-checks the rules,
-`adjudicator`, need to raise one, and neither may import the other. The contract and its
-breach belong together.
-
-**Every field of `ContractBreachReason` is a raw string**, on purpose. A breach is exactly
-the case where the wire carried a value that is not a domain value, so typing those fields
-as `EntityId` or `EffectOp` would assert the thing that just failed. It also means the type
-can be exported from `index.ts` without dragging the model contract onto the public surface.
-
----
-
-## `adjudicator.ts`, the rules, and the only place a proposal can be rejected
-
-**Owns** every game rule. Reach, calibration, band citation, effect legality, rewrite versus
-drop, degree-to-branch selection, initiative advance, and the ruling vocabulary.
-
-**Public** `adjudicate(world, brief, turn, proposal)`, plus `calibrationKey`,
-`renderCorrections`, `appliedEffects`, `stall`, and the `Refusal`, `Ruling` and `Terminal`
-types.
-
-**Changed by graft 1, in the signature.** `adjudicate` takes the brief as well as the world,
-because those are two different questions. The world is what is true. The brief is what the
-model was offered. A value contradicting the world is a rules event. A value that was never
-in the brief is a transport fault, since the engine generated those enums itself. Without
-the brief the two are indistinguishable and the breach channel cannot exist.
-
-**Changed by graft 1, in the union.** `Refusal` holds only Layer-2 conditions now, which are
-the ones depending on arithmetic, on a conjunction of effects inside one proposal, or on
-history. The conditions the schema already makes undecodable are still checked and are
-reported as `ContractBreachReason`, not as refusals. A refusal becomes fiction and is
-counted as a quality signal. A breach never becomes fiction and pages an operator.
-
-**Changed by graft 2.** Outcomes are named. `Ruling` is `applied`, `rewrite` or `drop`, one
-per proposed effect. `Terminal` is `resolved`, `asked`, `soft-fail` or `stalled`, one per
-turn. `asked` and `soft-fail` both produce zero events and must never be conflated, which is
-the bug an implicit taxonomy would have shipped.
-
-**The two layers, stated once.**
-
-| | Layer 1, syntax and shape | Layer 2, semantic and rules legality |
-| --- | --- | --- |
-| Owned by | the runtime, through `format: <schema>` | this module, and only this module |
-| Measured | 8/8 engine-valid, against 0/8 for JSON mode | not measurable by a decoder at all |
-| Catches | wrong field names, out-of-enum values, out-of-reach targets, off-mode ops, stale fact ids | difficulty 30 for a rusted lock, spending 50 while holding 12, two payments jointly bankrupt, a band contradicting last turn |
-| Our code | builds the schema, never re-checks it for gameplay purposes | the whole rules engine |
-
-**`world` versus `adjudicator` is a split by trust obligation, not by execution order.** The
-adjudicator is the boundary that validates. The reducer is the interior that trusts. That is
-boundary-discipline expressed as a module boundary. Collapsing them would force one function
-to be both rejecting, for new proposals, and total, for replay, which is the exact
-contradiction that breaks event-sourced systems a year in.
-
-**Depth.** One exported function hides the entire rules engine. Callers pass a proposal and
-a brief and get events. They learn nothing about reach, clamping or calibration to use it.
+Transcript clock and vow values are replayed from the log with running counters, never read
+off the final world. Reading current state while walking history stamps today's number onto
+every tick that ever happened, which this code did once.
 
 ---
 
 ## `dice.ts`, the only randomness
 
-**Owns** the PRNG, the band-to-target mapping, the degree ladder, and the cost rule.
+**Owns** every random number in the system. `roll` is a pure function of seed and turn
+number, so a session replays exactly and a bug reproduces from its seed alone.
 
-**Public** `draw`, `resolve`, `costTarget`, `Roll`, `Degree`, `RollKey`.
+**Public** `seed`, `roll`, `Roll`.
 
-**Why separate from the adjudicator.** It is the sole source of nondeterminism that is not
-the model, and isolating it is what makes "re-fold the log, get the same die" a property you
-can state in one sentence and test in three lines. The RNG has no hidden state. A draw is a
-pure function of the committed log height.
+A natural 1 always fails and a natural 20 always hits, regardless of modifier. That lives in
+the roll result rather than at the call sites, so no caller can forget it.
 
 ---
 
-## `brief.ts`, what the DM may know, and what it may name
+## `rules.ts`, the only place a proposal can be rejected
 
-**Owns** context scope resolution, the token budget, and the closed sets the model may
-choose from. Which NPC survives a crowded room, which of Marga's facts get dropped, when a
-veiled secret is pinned, and, most importantly, who is targetable versus merely mentionable.
+**Owns** adjudication. Given a world and a proposal, it decides what actually happened and
+returns events plus rulings. This is the file that makes the product's central claim true.
 
-**Public** `assemble`, `scopeCast`, `recapRequest`, `SceneBrief`, `MAX_IN_REACH`,
-`MAX_CITABLE_FACTS`.
+**Public** `adjudicate`, `Ruling`, `Adjudication`, `PLAYER_DEFENCE`.
 
-**This module now owns a correctness invariant, not a context budget.** `MAX_IN_REACH` is 6
-and `inReach` is truncated hard. The enum probe held the scene fixed and unambiguous and
-varied only the length of the target enum. Correctness went 8/8 at three entities, 4/8 at
-ten, 3/8 at twenty-five, while in-enum validity stayed 24/24 throughout. A generous
-`inReach` is actively harmful and no validity metric will ever report the harm. The priority
-order in `scopeCast` matters as much as the cap does, because the mechanism is distractor
-removal. The knitting old woman has to be the one that falls off the list and the smuggler
-the player just named has to be the one that never does.
+**Clamp what you can, drop what you cannot, and say so.** A difficulty outside the band is
+rewritten rather than refused, because refusing costs the player their turn for the DM's
+mistake. A target who is not present is dropped. Either way the ruling is narrated into the
+fiction, because a silent correction is indistinguishable from a bug.
 
-`MAX_CITABLE_FACTS` is 12 and is labelled in the code as extrapolation rather than
-measurement.
+**Every exit routes through `finish()`.** Reprisals, clock ticks and milestone checks live
+there. An earlier version applied them in a trailing loop that the early returns jumped over,
+so rulings never reached the log and the screen looked perfect. Behaviour that must happen on
+every path belongs on the single path every exit takes.
 
-**Why `inReach` lives here rather than in `director`.** The decision that Marga is relevant
-and the decision that Marga is nameable are the same scoping decision with two consumers,
-the prompt and the per-turn JSON Schema. Splitting them would give two places to change when
-the rule moves, and a bug class where the prompt introduces someone the schema forbids
-naming. Consolidate the decision, pass the result.
-
-**Why it is not part of `director`.** This is pure domain policy with real consequences, and
-keeping it out of the IO module means it is unit-testable on a GPU-less laptop. `SceneBrief`
-is a domain type. No messages, no roles, no prompt strings.
-
-**Second consumer, added by graft 1.** The brief is also the record of what the model was
-permitted to say, which is what lets `adjudicate` tell a rules event from a transport
-breach.
+A target is resolved only for ops that read one. The schema forces the target field to be
+filled every turn, so on a `move` whatever sits there is noise, and ruling on noise teaches
+the player to scroll past rulings.
 
 ---
 
 ## `director.ts`, the seam, and the shape gate
 
-**Owns** everything about the fact that an LLM exists. Prompt rendering, HTTP transport,
-per-turn JSON Schema construction, the wire to domain branding step, and all four Director
-implementations.
+**Owns** everything about talking to a model, and the brief that decides what the model is
+allowed to say in the first place.
 
-**Public** `Director`, `proposalSchema`, `parseProposal`, `localDirector`,
-`scriptedDirector`, `replayDirector`, `hostileDirector`, `warden`, `directorContract`,
-`MINT_SLOTS`, `MAX_TARGET_ENUM`.
+**Public** `Director`, `Proposal`, `SceneBrief`, `briefFor`, `buildSchema`, `renderPrompt`,
+`SAMPLING`, `ollamaDirector`, `scriptedDirector`, `wanderingDirector`, `isOutOfCharacter`,
+`MINT_SLOTS`, `MAX_IN_REACH`.
 
-**Strictly private** every transport shape. Targets are bare strings on the wire and a
-discriminated union inside. Nothing outside this file has ever seen a string where a
-`Target` belongs.
+**`buildSchema` is the architecture.** The JSON Schema is rebuilt every turn from live world
+state and passed to the model as a decoding constraint. Targets are the people in this room.
+Directions are the exits this room actually has. Clocks are the clocks in play. Ops depend on
+the mode. An illegal choice is not rejected after the fact, it is **undecodable**. Measured at
+8/8 engine-valid against 0/8 for both the unconstrained and JSON-mode alternatives.
 
-**What measurement 1 changed here.** A probe of qwen2.5:3b via Ollama scored 0/8
-engine-valid unconstrained, 0/8 with `format: "json"` while parsing 8/8, and 8/8 with
-`format: <schema>`. So this module has no parse-repair loop and no retry ladder. Shape is
-the runtime's job. What it gained instead is `proposalSchema`, which builds the schema from
-this turn's world so every closed set the engine already knows becomes an enum the decoder
-enforces. Out-of-reach targets, off-mode ops, stale fact ids and out-of-initiative actors
-stop being rules checks and become undecodable.
+**Field order is load-bearing.** Constrained decoding emits properties in declaration order,
+so whatever comes first is chosen with the least context and everything after is written to
+be consistent with it. `narration` used to be first; the model wrote prose and then picked an
+op to match what it had already said. Moving `op` first fixed it.
 
-**What measurement 2 changed here.** `MINT_SLOTS` is 2, down from 4. Mint slots share the
-target enum with entities in reach, so the enum the decoder sees is
-`MAX_IN_REACH + MINT_SLOTS` members long. Four slots would have put the total at ten, which
-is exactly the condition measured at 4/8 correct. Two holds it at eight. `MAX_TARGET_ENUM`
-names the bound and `proposalSchema` asserts it, because an overflow is invisible to every
-other check in the system.
-
-**This is the module that makes the test suite GPU-free.** The model is a constructor
-argument, not an import. `scriptedDirector` takes raw wire JSON, which is also the only way
-to test the breach path without a live model.
-
----
-
-## `store.ts`, persistence port
-
-**Owns** the append-only log, CAS on the head, turn-id lookup for idempotency, and an opaque
-snapshot cache.
-
-**Public** `EventStore`, `sqliteStore`, `memoryStore`, `AppendResult`.
-
-**Strictly private** the schema. Snapshots are `Uint8Array`, so the store does not know what
-a `World` is and a snapshot format change is not a migration. Snapshots carry zero
-authority. `DELETE FROM snapshots` must be safe.
-
----
-
-## `events.ts`, the log and its projections
-
-**Owns** `WorldEvent`, `Recorded`, `Exchange`, and the transcript projection.
-
-**Changed by graft 2.** `turn-recorded` carries one exhaustive `Ruling[]` and a `Terminal`,
-replacing the applied-plus-refused pair a looser design would keep. An effect cannot then
-appear in neither list, which is the failure mode that makes an audit lie. `Exchange` also
-carries the terminal kind, so scrollback keeps showing the rephrase invitation on a
-soft-failed turn.
-
-**Contract breaches are deliberately absent from the log.** They are operational facts about
-the deployment, not events in this world, and the transcript is projected from this log. A
-breach reaches the operator through `EngineDeps.onBreach` and the process log. `terminal`
-records that the turn stalled and nothing more.
+**The Director is an interface, not a model.** `scriptedDirector` replays fixed proposals and
+`wanderingDirector` derives a legal one from the brief, which is what makes the whole suite
+runnable with no GPU and no network. Both keep their cursor in a closure, so they are
+per-process, not per-session.
 
 ---
 
 ## `engine.ts`, the turn as a unit of atomicity
 
-**Owns** the public surface of `begin`, `takeTurn` and `view`, turn idempotency, the single
-commit transaction, the unreachable-model fallback, the breach fallback, the streaming
-protocol, and the `PlayerView` projection.
+**Owns** scenarios and the turn loop. `takeTurn` is the one place a turn happens: build the
+brief, ask the Director, adjudicate, fold the events, persist.
 
-**Public** `createEngine`, `Engine`, `EngineDeps`, `PlayerView`, `TurnEvent`, `TurnOutcome`,
-`TurnRequest`.
+**Public** `SCENARIOS`, `SCENARIO_IDS`, `scenarioFor`, `begin`, `takeTurn`, `Session`,
+`Scenario`.
 
-**Not a pass-through.** It owns a guarantee no other module can make. The turn always
-settles, exactly once, with prose and a consistent world, whatever the model did.
-
-**`PlayerView` is not `World`.** The world holds veiled facts, NPC dispositions, hidden
-clocks and the calibration table. Shipping it to the browser would leak the secrets the game
-is made of. `PlayerView.here.present[].inReach` is the one field that crosses from the
-scoping decision to the UI, so the client can grey out what the player cannot act on.
-
-**`onBreach` is the operator channel.** The player never sees a contract breach, so someone
-has to, or a swapped model degrades silently into stalled turns that look like bad luck.
+`scenarioFor` resolves an id to a scenario, generating one from the seed when the id names a
+generated scenario. That is why the database stores only an id and a seed: the world is
+rebuilt, not reloaded.
 
 ---
 
-## `index.ts`, the public boundary
+## `mapgen.ts`, dungeons as a pure function of a seed
 
-Re-exports `createEngine`, the two projections, `TurnOutcome`, the branded id constructors,
-the shared vocabulary the UI renders, `DirectorContractBreach`, and the two ports. Nothing
-else. `World`, `Effect`, `Proposal`, `WorldEvent`, `SceneBrief`, `Refusal` and `Ruling` are
-all private, so a UI change can never be blocked on the DM's internal governance.
+**Owns** procedural generation. `generateDelve(seed)` returns an ordinary `Scenario`, so
+nothing downstream knows or cares whether the rooms were written or grown.
+
+**Public** `generateDelve`, `DelveOptions`.
+
+Graph first, prose second. Compact growth, then a spanning tree, then an explicit loop pass,
+then a guaranteed bridge. The loop pass is the whole point: a spanning tree is a corridor you
+walk down and back, not a place with choices in it. Seven hand-picked seeds passed while 38
+of 400 were still trees, which is why the guard is a property test over thousands of seeds
+rather than a handful of examples.
 
 ---
 
-## Outside the package
+## `store.ts`, persistence port
 
-| Module | Owns | Surface |
-| --- | --- | --- |
-| `api/` | HTTP and SSE framing, auth, session ownership | four routes, all thin adapters |
-| `client/` | rendering, optimistic input, the die animation | imports types from `@portale/engine` only |
-| `fixtures/` | captured real-model sessions as JSONL | consumed by `replayDirector` |
-| `tools/model-probe/` | the two measurements this design rests on | run by hand, and again on the production host |
+**Owns** durability and nothing else. `node:sqlite`, an append-only event log, no ORM.
 
-`api/` routes are genuinely thin and that is correct. A transport adapter at a system
-boundary is the one place a forwarding layer earns its keep, because it converts protocol
-into domain and back.
+**Public** `openStore`, `Store`, `StoredSession`.
 
-The die animation runs client-side against a roll that is already committed, which is why
-interactive dice cost no second model call.
+The log is the truth and the in-memory session is a cache. That is testable rather than
+merely asserted: the API suite restarts the whole server and replays from disk.
+
+---
+
+## `app.ts`, the HTTP surface
+
+**Owns** routing, request validation, and the concurrency guard.
+
+**Public** `createApp`, `AppDeps`, `App`.
+
+`createApp(deps)` takes the store and the Director as arguments, which is what lets the tests
+build a real server on an ephemeral port with a scripted DM and a throwaway database. The
+HTTP surface is tested for real rather than mocked.
+
+Body size and utterance length are capped here, and an in-flight guard rejects a second
+concurrent turn on the same session rather than interleaving two writes.
+
+---
+
+## `server.ts`, the entry point
+
+Reads environment variables, picks a Director, opens a store, listens. Nothing else. It
+exists so `app.ts` has no opinion about configuration and stays testable.
+
+---
+
+## `client.ts`, the typed client
+
+**Owns** the shape of the API as seen from outside. Used by both the API test suite and the
+CLI, so the types are exercised rather than aspirational.
+
+**Public** `portaleClient`, `PlayerView`, `ApiError`, and the response types.
+
+`raw()` is the deliberate escape hatch: it returns status and body untouched, which is the
+only way to assert on error contracts the typed methods would throw away.
+
+---
+
+## `demo-script.ts`, a DM that cannot vary
+
+A fixed list of proposals, the second of which is deliberately illegal. The scripted director
+repeats its last entry once the script runs out, so every turn after the first exercises the
+engine overruling the DM. Without that, the engine-authority proof has nothing to photograph.
+
+---
+
+## Outside `packages/app/src`
+
+| Path | What it is |
+| --- | --- |
+| `packages/app/public/index.html` | the whole client. Plain HTML, no framework, no build |
+| `packages/app/test/` | `node --test` against the real modules, no GPU, no network |
+| `tools/model-probe/` | measures whether a model can be trusted to emit valid actions |
+| `tools/replay-probe/` | scores DM proposals against a recorded session |
+| `tools/mutate/` | deletes each rule and requires the test named for it to fail |
+| `tools/api-cli/` | drives the HTTP API directly, booting its own server if asked |
+| `.github/skills/verify-portale/` | drives the real app in a real browser over CDP |
+
+`tools/replay-probe/` imports `director`, `engine`, `world` and `dice`, and never calls
+`adjudicate`. It measures the model's proposals in isolation, not the played game, so a
+change to `rules.ts` cannot move its score.
 
 ---
 
 ## Dependency direction
 
+Runtime imports only — `import type` is erased under `erasableSyntaxOnly`, so it costs
+nothing at load time and is listed separately below.
+
 ```
-ids
- |
- +-- world  <type>  proposal          two halves of one idea
- |      |              |
- |      +---- dice ----+
- |               |
- |             brief
- |               |
- |        adjudicator  <type>  events
- |               |
- |      +--------+--------+
- |      |                 |
- |   director           store
- |      |                 |
- |      +--------+--------+
- |               |
- |            engine
- |               |
- |             index
+server.ts ──> app.ts ──> engine.ts ──> director.ts ──┐
+    │           │            │                       │
+    │           │            ├──> rules.ts ──────────┤
+    │           │            ├──> mapgen.ts ─────────┤
+    │           │            └──> dice.ts            │
+    │           ├──> store.ts                        │
+    └──> demo-script.ts                              v
+                                                  world.ts
 ```
 
-No runtime cycles. `world` and `proposal`, and `adjudicator` and `events`, are mutually
-referential by type only, which TypeScript resolves and `verbatimModuleSyntax` erases
-entirely. Each pair is two halves of one idea. A world and the vocabulary for changing it. A
-log and the rulings that produced it.
+`world.ts`, `dice.ts`, `store.ts`, `client.ts` and `demo-script.ts` import no module value at
+runtime. Nothing imports `server.ts` or `client.ts`.
 
-`adjudicator` imports `SceneBrief` as a type only, and never the other way round.
-`affordances` sits in `proposal` so that `brief` and `adjudicator` can both reach it without
-either importing the other, which is why it moved out of `adjudicator` during synthesis.
+**There is one back-edge, and it is type-only.** `engine.ts` imports the value
+`generateDelve` from `mapgen.ts`, and `mapgen.ts` imports `Scenario`, `ClockDef`, `VowDef`
+and `LocationDef` back from `engine.ts` as `import type`. TypeScript erases that, so there is
+no cycle at load time, but the two modules do define each other's vocabulary: a generated
+delve is just a `Scenario`, and `Scenario` is the shape `engine.ts` owns. Read them as a
+pair. If the type-only import ever becomes a value import, it becomes a real cycle.
+
+`world.ts` similarly depends on `dice.ts` for `Roll` and `Seed` in the type graph while
+importing nothing from it at runtime.
+
+The browser reaches `app.ts` and stops there. It never touches the model, and it never
+receives a `World`.
