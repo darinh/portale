@@ -119,10 +119,14 @@ ephemeral port with a scripted DM and a throwaway database, so the HTTP surface 
 real rather than mocked.
 
 ```powershell
-node tools/mutate/run.mjs          # proves each rule is covered by its own named test
-node tools/model-probe/probe.mjs   # measures whether a model can be trusted
-node tools/replay-probe/run.mjs    # scores the DM against a real recorded session
+node tools/mutate/run.mjs            # proves each rule is covered by its own named test
+node tools/model-probe/probe.mjs     # measures whether a model can be trusted
+node tools/replay-probe/run.mjs --repeat 3   # scores the DM against a real recorded session
 ```
+
+One replay pass is ten turns at temperature 0.85. On known-good code a single pass reports a
+fatal failure about a third of the time, so compare branches at equal repeated sample sizes
+rather than one pass each.
 
 ## Talk to the API directly
 

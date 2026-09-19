@@ -7,9 +7,27 @@
  * sentence, and it wrote dice mechanics into the prose.
  *
  * It imports the real director module, so it scores the shipped prompt rather than a copy.
+ * It does NOT import rules.ts and never calls adjudicate, so it measures the model's
+ * proposals in isolation rather than the played game. A change to the adjudicator cannot
+ * move this score.
+ *
+ * ## One pass is a sample, not a verdict
+ *
+ * Ten turns at temperature 0.85. Measured on known-good code, three single passes gave 0,
+ * 0 and 1 fatal failures, so a lone run reporting clean was luck a third of the time and a
+ * lone run reporting a failure was a false alarm a third of the time. A single pass was
+ * treated as a stable 10/10 baseline for a while, and it never was.
+ *
+ * Baseline measured 2026-09-19 on qwen2.5:3b-instruct, CPU, `--repeat 3` (30 turns):
+ *
+ *   violence silently dropped   0/12
+ *   fight started over a meta   0/6
+ *   op defensible               26/30
+ *
+ * Compare branches at equal and repeated sample sizes, or you are comparing coin flips.
  *
  * Usage:
- *   node tools/replay-probe/run.mjs --model qwen2.5:3b-instruct
+ *   node tools/replay-probe/run.mjs --repeat 3
  */
 
 import { readFileSync } from "node:fs";
@@ -25,8 +43,19 @@ const { values } = parseArgs({
   options: {
     model: { type: "string", default: "qwen2.5:3b-instruct" },
     endpoint: { type: "string", default: "http://127.0.0.1:11434/v1" },
+    /**
+     * How many times to replay the whole fixture.
+     *
+     * One pass is ten turns at temperature 0.85, which is a sample, not a verdict. Three
+     * control passes on known-good code produced 0, 0 and 1 fatal failures, so a single
+     * pass reporting NO FATAL FAILURES was luck a third of the time and a regression alarm
+     * a third of the time. Neither is a gate. Repeat and read the rate.
+     */
+    repeat: { type: "string", default: "1" },
   },
 });
+
+const REPEAT = Math.max(1, Number(values.repeat));
 
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "real-session.json"), "utf8"));
 
@@ -60,11 +89,12 @@ async function propose(brief) {
   return JSON.parse(body.choices[0].message.content);
 }
 
+console.log(`model=${values.model}\nreplaying ${fixture.turns.length} real turns x ${REPEAT} pass(es)\n`);
+
+async function onePass() {
 let world = begin(SCENARIOS[0], seed(20260917));
 const seen = [];
 const results = [];
-
-console.log(`model=${values.model}\nreplaying ${fixture.turns.length} real turns\n`);
 
 for (const [i, turn] of fixture.turns.entries()) {
   world = apply(world, { kind: "said", text: turn.utterance });
@@ -126,9 +156,20 @@ for (const [i, turn] of fixture.turns.entries()) {
   );
 }
 
+  return results;
+}
+
+const passes = [];
+for (let r = 0; r < REPEAT; r++) {
+  if (REPEAT > 1) console.log(`--- pass ${r + 1}/${REPEAT} ---`);
+  passes.push(await onePass());
+}
+const results = passes.flat();
+
 const n = results.length;
 const score = (k) => results.filter((r) => r[k]).length;
 const inCat = (c) => results.filter((r) => r.category === c).length;
+const fatalIn = (rs) => rs.filter((r) => r.droppedViolence || r.fightOverMeta).length;
 
 console.log(`\n================ SCORE ================`);
 console.log(`  NEVER ACCEPTABLE`);
@@ -143,5 +184,26 @@ console.log(`    leaked mechanics into prose ${score("leaked")}/${n}   <- want 0
 console.log(`    handed back a menu          ${score("menu")}/${n}   <- want low`);
 
 const fatal = score("droppedViolence") + score("fightOverMeta");
-console.log(`\n${fatal === 0 ? "NO FATAL FAILURES" : `${fatal} FATAL FAILURE(S)`}`);
+
+if (REPEAT > 1) {
+  const perPass = passes.map(fatalIn);
+  const clean = perPass.filter((f) => f === 0).length;
+  console.log(`\n  fatal failures per pass       ${perPass.join(", ")}`);
+  console.log(`  passes with none              ${clean}/${REPEAT}`);
+}
+
+/**
+ * The gate is the RATE, not any single pass.
+ *
+ * Measured on known-good code, three passes gave 0, 0 and 1 fatal failures. So a one-pass
+ * run reporting clean was luck a third of the time, and a one-pass run reporting a fatal
+ * failure was a false alarm a third of the time. Comparing two branches by one pass each
+ * is comparing two coin flips. Use --repeat and compare rates over equal sample sizes.
+ */
+console.log(`\n${fatal === 0 ? "NO FATAL FAILURES" : `${fatal} FATAL FAILURE(S)`} across ${n} turns`);
+if (REPEAT === 1) {
+  console.log(`(one pass is a sample, not a verdict. use --repeat 3 before believing it)`);
+}
 process.exit(fatal === 0 ? 0 : 1);
+
+
