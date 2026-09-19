@@ -36,6 +36,15 @@ export interface Entity {
   readonly hp: Meter;
   readonly hostile: boolean;
   readonly dead: boolean;
+  /**
+   * How hard they hit when they strike back. Zero means they never do.
+   *
+   * Before this existed the protagonist could only ever be the roller, never a target, so
+   * a player could stab the same smuggler forever and take nothing in return. A world that
+   * cannot hurt you is the "yes-manning" failure every AI DM gets accused of, made
+   * structural.
+   */
+  readonly power: number;
 }
 
 export type Mode = 'exploration' | 'combat';
@@ -113,6 +122,24 @@ export function fold(initial: World, events: readonly WorldEvent[]): World {
   return events.reduce(apply, initial);
 }
 
+/**
+ * Who strikes back this turn. The engine chooses, not the model, so the world pushes back
+ * whether or not the DM thought to mention it. Deterministic: the most dangerous living
+ * hostile, ties broken by insertion order, so a replay picks the same foe.
+ *
+ * Lives here rather than in the rules because "who in this room is dangerous" is world
+ * knowledge, and both the adjudicator and the scene brief need the same answer. Two copies
+ * would be two places to change, and the DM would narrate one foe while another swung.
+ */
+export function reprisalActor(w: World): Entity | undefined {
+  let best: Entity | undefined;
+  for (const e of w.entities.values()) {
+    if (e.id === w.protagonist || !e.hostile || e.dead || e.power <= 0) continue;
+    if (best === undefined || e.power > best.power) best = e;
+  }
+  return best;
+}
+
 export interface ViewEntity {
   readonly id: EntityId;
   readonly name: string;
@@ -130,7 +157,7 @@ export interface PlayerView {
   readonly seq: number;
   readonly mode: Mode;
   readonly scene: string;
-  readonly you: { readonly name: string; readonly hp: Meter };
+  readonly you: { readonly name: string; readonly hp: Meter; readonly defeated: boolean };
   readonly present: readonly ViewEntity[];
   readonly transcript: readonly ViewLine[];
 }
@@ -145,7 +172,11 @@ export function project(w: World): PlayerView {
     seq: w.seq,
     mode: w.mode,
     scene: w.scene,
-    you: { name: you?.name ?? 'you', hp: you?.hp ?? meter(0, 0) },
+    you: {
+      name: you?.name ?? 'you',
+      hp: you?.hp ?? meter(0, 0),
+      defeated: you?.dead ?? false,
+    },
     present: [...w.entities.values()]
       .filter((e) => e.id !== w.protagonist)
       .map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
@@ -160,19 +191,33 @@ export function project(w: World): PlayerView {
         case 'rolled': {
           const mod = e.roll.face === e.roll.total ? '' : ` (${e.roll.total})`;
           const crit = e.roll.critical === null ? '' : ` · critical ${e.roll.critical}`;
+          const who = e.actor === w.protagonist ? '' : `${nameOf(w, e.actor)}: `;
           return [
             {
               kind: 'roll',
-              text: `d${e.roll.die} → ${e.roll.face}${mod} vs DC ${e.roll.dc} · ${e.roll.success ? 'success' : 'failure'}${crit}`,
+              text: `${who}d${e.roll.die} → ${e.roll.face}${mod} vs DC ${e.roll.dc} · ${e.roll.success ? 'success' : 'failure'}${crit}`,
             },
           ];
         }
         case 'damaged':
-          return [{ kind: 'mech', text: `${nameOf(w, e.target)} takes ${e.amount}` }];
+          return [
+            {
+              kind: 'mech',
+              text:
+                e.target === w.protagonist
+                  ? `you take ${e.amount}`
+                  : `${nameOf(w, e.target)} takes ${e.amount}`,
+            },
+          ];
         case 'healed':
           return [{ kind: 'mech', text: `${nameOf(w, e.target)} recovers ${e.amount}` }];
         case 'died':
-          return [{ kind: 'mech', text: `${nameOf(w, e.target)} falls` }];
+          return [
+            {
+              kind: 'mech',
+              text: e.target === w.protagonist ? 'you fall' : `${nameOf(w, e.target)} falls`,
+            },
+          ];
         case 'ruled':
           return [{ kind: 'ruled', text: e.detail }];
         default:

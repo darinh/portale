@@ -18,7 +18,7 @@
 
 import { roll } from './dice.ts';
 import type { Proposal, SceneBrief } from './director.ts';
-import { apply, entityId } from './world.ts';
+import { apply, entityId, reprisalActor } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
 /**
@@ -55,6 +55,10 @@ const DC_FLOOR = 5;
 const DC_CEILING = 25;
 const MAX_DAMAGE = 12;
 const MINTED_HP = 8;
+const MINTED_POWER = 3;
+
+/** How hard it is for a hostile to land a blow on the player. */
+export const PLAYER_DEFENCE = 12;
 
 /**
  * Minted ids derive from the world's own seed and event count, never from wall clock time
@@ -83,6 +87,38 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     emit({ kind: 'ruled', why: r.why, detail: r.detail });
   }
 
+  /**
+   * The world's turn. Every exit from this function goes through here, because a reprisal
+   * that only runs on the success path is the rulings bug again: important behaviour
+   * stranded behind an early return. The enemy acts whether or not the player's swing
+   * landed, which is the entire point of having an enemy.
+   */
+  function finish(softFail: boolean): Adjudication {
+    if (working.mode === 'combat') {
+      const you = working.entities.get(working.protagonist);
+      if (you !== undefined && !you.dead) {
+        const foe = reprisalActor(working);
+        if (foe !== undefined) {
+          const swing = roll(working.seed, working.seq, 20, 0, PLAYER_DEFENCE);
+          emit({ kind: 'rolled', roll: swing, actor: foe.id, why: 'reprisal' });
+
+          if (swing.success) {
+            const base = Math.max(1, Math.min(foe.power, MAX_DAMAGE));
+            const hurt = swing.critical === 'hit' ? base * 2 : base;
+            emit({ kind: 'damaged', target: working.protagonist, amount: hurt });
+
+            const left = working.entities.get(working.protagonist);
+            if (left !== undefined && left.hp.now <= 0) {
+              emit({ kind: 'died', target: working.protagonist });
+              emit({ kind: 'mode', to: 'exploration' });
+            }
+          }
+        }
+      }
+    }
+    return { events, rulings, softFail };
+  }
+
   emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });
 
   let targetId: EntityId | null = null;
@@ -102,6 +138,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
         hp: { now: MINTED_HP, max: MINTED_HP },
         hostile: proposal.introduces.hostile,
         dead: false,
+        power: proposal.introduces.hostile ? MINTED_POWER : 0,
       };
       emit({ kind: 'introduced', entity });
       targetId = entity.id;
@@ -118,7 +155,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
   }
 
   if (proposal.op === 'engage') {
-    if (targetId === null) return { events, rulings, softFail: true };
+    if (targetId === null) return finish(true);
     const foe = working.entities.get(targetId);
     if (foe === undefined || !foe.hostile || foe.dead) {
       rule({
@@ -126,7 +163,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
         why: 'nothing-to-fight',
         detail: 'There is no one here willing to trade blows.',
       });
-      return { events, rulings, softFail: true };
+      return finish(true);
     }
     if (working.mode !== 'combat') emit({ kind: 'mode', to: 'combat' });
     // Deliberately falls through to resolution. Entering combat and then discarding the
@@ -136,11 +173,11 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
   }
 
   if (proposal.op === 'narrate_only' || proposal.op === 'introduce' || proposal.op === 'talk') {
-    return { events, rulings, softFail: false };
+    return finish(false);
   }
 
   if (targetId === null) {
-    return { events, rulings, softFail: true };
+    return finish(true);
   }
 
   let dc = proposal.difficulty;
@@ -158,7 +195,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
   emit({ kind: 'rolled', roll: outcome, actor: w.protagonist, why: proposal.ability });
 
   if (!outcome.success) {
-    return { events, rulings, softFail: false };
+    return finish(false);
   }
 
   if (proposal.op === 'attack' || proposal.op === 'engage') {
@@ -187,5 +224,5 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     }
   }
 
-  return { events, rulings, softFail: false };
+  return finish(false);
 }
