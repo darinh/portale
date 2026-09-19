@@ -1,6 +1,6 @@
 ---
 name: verify-portale
-description: Drive the real Portale web app in a real mobile-viewport browser and prove behaviour with screenshots and transcripts. Portale is a solo tabletop RPG where a locally hosted LLM plays the Dungeon Master. Reach for this before claiming any change to the engine, the API, or the UI works, and whenever a DM change needs proof that the engine still owns game state.
+description: Drive the real Portale app and prove behaviour, either through a real mobile-viewport browser or directly against the HTTP API with no browser at all. Portale is a solo tabletop RPG where a locally hosted LLM plays the Dungeon Master. Reach for this before claiming any change to the engine, the API, or the UI works, and whenever a DM change needs proof that the engine still owns game state.
 ---
 
 # Verify Portale
@@ -156,10 +156,27 @@ Evidence survives cleanup. Never delete `--out`.
 ## Helpers
 
 - `drive.mjs` in this directory is the browser harness. Invocation is shown above.
+- `tools/api-cli/run.mjs` talks to the API directly, with no browser. It can boot its own
+  throwaway server, so it needs nothing running first. This is the fastest way to answer
+  "does the server work", and the only way to assert on status codes.
+
+  ```powershell
+  node tools/api-cli/run.mjs --serve scripted smoke      # drive a scenario, assert, exit non-zero on failure
+  node tools/api-cli/run.mjs --serve live play           # interactive, against the local model
+  node tools/api-cli/run.mjs raw GET /api/sessions       # any endpoint
+  ```
+
+- `packages/app/src/client.ts` is the typed client the CLI and the API tests both use. Import
+  `portaleClient(baseUrl)` to script against the API from anything else.
+- `packages/app/test/api.test.ts` builds a real server on an ephemeral port with a scripted DM
+  and covers the error contract, the concurrency guard and restart persistence. Run it with
+  `node --test "test/**/*.test.ts"` from `packages/app`.
 - `tools/model-probe/` measures whether a model can be trusted to emit engine-valid actions.
   Run it after changing the model, the prompt, or the schema.
+- `tools/replay-probe/` scores the DM against a real recorded session. Run it after any
+  prompt or schema change, because it catches quality regressions the unit tests cannot see.
 - `tools/mutate/run.mjs` proves each engine rule is covered by the test named for it. Run it
-  after changing anything in `packages/app/src/rules.ts`.
+  after changing anything in `packages/app/src/rules.ts` or `packages/app/src/app.ts`.
 
 ## Feature map
 

@@ -45,7 +45,8 @@ Three tiers and no dependencies. The only package in the tree is TypeScript, for
 
 ```
 client    packages/app/public/index.html   plain HTML, no build step
-API       packages/app/src/server.ts       node:http, the only thing that talks to the model
+API       packages/app/src/app.ts          node:http, the only thing that talks to the model
+entry     packages/app/src/server.ts       reads env, listens, nothing else
 database  packages/app/src/store.ts        node:sqlite, append-only event log
 ```
 
@@ -72,17 +73,50 @@ Dice are a pure function of seed and turn number, so a session replays exactly.
 ```powershell
 cd packages/app
 npm install                       # typescript, for typechecking only
-node --test "test/**/*.test.ts"   # 26 tests, no GPU and no model needed
+node --test "test/**/*.test.ts"   # no GPU and no model needed
 npx tsc --noEmit
 ```
 
 The Director is a constructor argument, which is what makes the suite runnable on a machine
-with no GPU.
+with no GPU. The API tier is the same: `createApp(deps)` builds a server you can start on an
+ephemeral port with a scripted DM and a throwaway database, so the HTTP surface is tested for
+real rather than mocked.
 
 ```powershell
 node tools/mutate/run.mjs          # proves each rule is covered by its own named test
 node tools/model-probe/probe.mjs   # measures whether a model can be trusted
+node tools/replay-probe/run.mjs    # scores the DM against a real recorded session
 ```
+
+## Talk to the API directly
+
+`tools/api-cli/` is a direct line to the server, no browser involved. It can boot its own
+throwaway instance, so there is nothing to start first.
+
+```powershell
+node tools/api-cli/run.mjs --serve scripted smoke      # drive a scenario and assert the basics
+node tools/api-cli/run.mjs --serve live play           # interactive, against the local model
+node tools/api-cli/run.mjs --url http://127.0.0.1:8787 health
+node tools/api-cli/run.mjs raw GET /api/sessions       # anything else
+```
+
+`--serve scripted` needs no model at all. `raw` prints the status and body and exits non-zero
+on failure, which is what makes it usable in a script.
+
+### Endpoints
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| `GET` | `/api/health` | liveness, and which DM is wired in |
+| `GET` | `/api/scenarios` | what can be played |
+| `GET` | `/api/sessions` | sessions and their turn counts |
+| `POST` | `/api/session` | start one. Optional `scenario` and `seed` |
+| `GET` | `/api/session/:id` | the player's view |
+| `POST` | `/api/session/:id/turn` | take a turn. Body `{ "utterance": "..." }` |
+
+The browser never reaches the model, and never receives a `World`. It receives a `PlayerView`,
+which omits the DM's private lore. `packages/app/src/client.ts` is a typed client for all of
+the above, used by both the CLI and the API tests.
 
 ## Verify
 
