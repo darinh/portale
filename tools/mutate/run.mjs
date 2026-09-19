@@ -102,6 +102,20 @@ const MUTANTS = [
     test: "the DM is only offered clues in the room the player is standing in",
   },
   {
+    rule: "a clue elsewhere is absent from the decoder's enum",
+    file: "src/world.ts",
+    find: "  return [...w.clues.values()].filter((c) => !c.found && c.at === w.here);",
+    replace: "  return [...w.clues.values()].filter((c) => !c.found);",
+    test: "a clue in another room is undecodable, not merely refused",
+  },
+  {
+    rule: "a found clue is dropped from the decoder's enum",
+    file: "src/world.ts",
+    find: "  return [...w.clues.values()].filter((c) => !c.found && c.at === w.here);",
+    replace: "  return [...w.clues.values()].filter((c) => c.at === w.here);",
+    test: "a clue already found leaves the schema",
+  },
+  {
     rule: "undiscovered clues are withheld from the player view",
     file: "src/world.ts",
     find: "      .filter((c) => c.found)",
