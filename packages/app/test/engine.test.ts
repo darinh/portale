@@ -963,6 +963,47 @@ test('a clue in another room is undecodable, not merely refused', () => {
   assert.ok(schema.properties.reveals.enum.includes('none'), 'and the DM may always decline');
 });
 
+test('there is nothing to find while a fight is on', () => {
+  const w = inCombat(seed(11));
+  const schema = buildSchema(briefFor(w, 'I search the bar')) as { properties: { reveals: { enum: string[] } } };
+
+  assert.deepEqual(
+    schema.properties.reveals.enum,
+    ['none'],
+    'discoveries must be undecodable in combat, not merely implausible',
+  );
+  assert.equal(briefFor(w, 'I search the bar').cluesHere.length, 0, 'and absent from the prompt');
+});
+
+test('a DM that ignores the schema is still refused a discovery mid-fight', () => {
+  const w = inCombat(seed(11));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I search the bar'),
+    proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'no-searching-mid-fight'));
+  assert.ok(!events.some((e) => e.kind === 'found'));
+});
+
+test('the turn a fight starts can still carry the discovery it was offered', () => {
+  const w = begin(SCENARIO, seed(3));
+  assert.equal(w.mode, 'exploration', 'the DM was briefed out of combat');
+
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I grab the ledger and square up to her'),
+    proposal({ op: 'engage', target: MARGA, reveals: 'c_ledger_page' }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'mode'), 'the fight starts this turn');
+  assert.ok(
+    events.some((e) => e.kind === 'found'),
+    'and the discovery stands, because the schema had offered it before the mode flipped',
+  );
+});
+
 test('a clue already found leaves the schema', () => {
   let w = begin(SCENARIO, seed(3));
   const { events } = adjudicate(

@@ -160,6 +160,25 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
   function applyReveal(): void {
     if (proposal.reveals === 'none') return;
 
+    /**
+     * Mode as it was at the START of the turn, which is the mode the DM was briefed on.
+     * Reading `working` instead would refuse the discovery on the very turn a fight
+     * begins, because `engage` has already flipped the mode by the time this runs, and
+     * the DM would be punished for an answer the schema had offered it.
+     *
+     * Checked before the clue is resolved at all: if there is no time to look for
+     * anything, which thing was named does not matter, and "no time" is the more useful
+     * thing to tell the player than "not here".
+     */
+    if (w.mode === 'combat') {
+      rule({
+        kind: 'drop',
+        why: 'no-searching-mid-fight',
+        detail: 'There is no time to go looking for anything with this going on.',
+      });
+      return;
+    }
+
     const clue = working.clues.get(clueId(proposal.reveals));
     if (clue === undefined || clue.found) {
       rule({
