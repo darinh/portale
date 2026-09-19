@@ -37,9 +37,9 @@ Preconditions:
 - **Replayable.** Start two sessions with the same seed by posting `{"seed":42}` and drive the
   same utterance in each. The roll lines match. This is the user-visible half of the property
   that `packages/app/test/engine.test.ts` proves directly.
-- **Clamp and cap, both visible to the player.** Under the scripted DM, turn one is a legal
-  attack and every turn after it proposes difficulty 30 and damage 999, both illegal. Drive
-  two turns, then
+- **Clamp and cap, both visible to the player.** Under the scripted DM, the server's first
+  turn is a legal attack and every turn after it proposes difficulty 30 and damage 999, both
+  illegal. Drive two turns on a freshly started server, then
   `assert "document.querySelectorAll('.ruled').length > 0" "the ruling reached the transcript"`
   and
   `assert "document.body.innerText.includes('the table settles on 25')" "the player was told"`.
@@ -78,5 +78,8 @@ Preconditions:
   scripted illegal proposal as evidence the schema failed.
 - `authority-settle` requires actually stopping Ollama. Pointing at a wrong port tests a
   different failure path, connection refused rather than an unreachable model.
+- "The server's first turn" means the process's, not the session's. The scripted cursor lives
+  in the director, which `server.ts` builds once, so a second session on the same instance
+  never sees the legal opening attack and stays in exploration. Restart between recipes.
 - Do not assert on the exact wording of a ruling. The detail strings are player-facing prose and
   are expected to change.
