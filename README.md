@@ -28,18 +28,27 @@ ollama pull qwen2.5:3b-instruct
 To play without a model, run with a fixed script instead.
 
 ```powershell
-$env:PORTALE_DM = "scripted"; node src/server.ts
+$env:PORTALE_DM = "scripted"; node src/server.ts   # a fixed tavern script
+$env:PORTALE_DM = "wander";   node src/server.ts   # reads the brief, works in any scenario
 ```
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `PORT` | `8787` | HTTP port |
 | `PORTALE_DB` | `data/portale.db` | SQLite file |
-| `PORTALE_DM` | unset | `scripted` swaps the model for a fixed script |
+| `PORTALE_DM` | unset | `scripted` or `wander` replace the model |
 | `OLLAMA_ENDPOINT` | `http://127.0.0.1:11434/v1` | OpenAI-compatible endpoint |
 | `OLLAMA_MODEL` | `qwen2.5:3b-instruct` | model to load |
 
 Start a line with `//` to ask the DM a question without acting in the world.
+
+## Two ways to play
+
+`http://127.0.0.1:8787/` opens the hand-authored tavern.
+
+`http://127.0.0.1:8787/?scenario=delve&seed=20260919` generates a dungeon. Change the seed
+for a different one, keep it to replay the same one. The seed is the dungeon, so a link is
+shareable and a session rebuilds identically.
 
 ## What is in the game
 
@@ -49,9 +58,10 @@ Start a line with `//` to ask the DM a question without acting in the world.
   you can see what is coming and decide whether another attempt is worth the risk.
 - **Places.** Rooms with named exits, and a map that draws only where you have been, with
   dashed stubs where you have not.
+- **Generated dungeons.** Graph first, with an explicit loop pass, because a spanning tree is
+  a corridor you walk down and back rather than a place with choices in it.
 - **A world that fights back.** Hostiles strike at you every round of combat. You can lose.
 - **Rulings you can read.** When the engine overrules the DM it says so in the fiction.
-
 
 ## Shape
 
@@ -137,9 +147,8 @@ on failure, which is what makes it usable in a script.
 | `GET` | `/api/session/:id` | the player's view |
 | `POST` | `/api/session/:id/turn` | take a turn. Body `{ "utterance": "..." }` |
 
-The browser never reaches the model, and never receives a `World`. It receives a `PlayerView`,
-which omits the DM's private lore. `packages/app/src/client.ts` is a typed client for all of
-the above, used by both the CLI and the API tests.
+`packages/app/src/client.ts` is a typed client for all of the above, used by both the CLI and
+the API tests.
 
 ## Verify
 
@@ -156,10 +165,10 @@ CDP, with no Playwright and no browser download. See its feature map for what to
 
 ## State of things
 
-The vertical slice runs, persists, and is tested. `packages/engine/` holds an older, fuller
-design sketch with unimplemented bodies; it is kept for reference and is NOT the running
-code. Everything that runs is in `packages/app/`.
+The game runs, persists, and is tested. `packages/engine/` holds an older, fuller design
+sketch with unimplemented bodies; it is kept for reference and is NOT the running code.
+Everything that runs is in `packages/app/`.
 
-Known gaps. One scenario, four hand-authored rooms, and no generator yet. Clue and lead
-objects do not exist, so the vow advances on any earned turn rather than on discovered
-information. There is no rest, no inventory and no progression beyond the vow track.
+Known gaps. Clue and lead objects do not exist, so a vow advances on any earned turn rather
+than on discovered information. There is no rest, no inventory, and no progression beyond the
+vow track. Generated delves reuse one prose table, so they vary in shape more than in voice.

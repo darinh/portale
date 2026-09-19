@@ -8,8 +8,9 @@ recipe.
 
 - Start Portale with a disposable database and a port this run owns. See **Launch** in
   [`../SKILL.md`](../SKILL.md).
-- Set `PORTALE_DM=scripted` for anything that asserts on a number. A live model chooses
-  differently every run and a flaky proof is not a proof.
+- Set `PORTALE_DM` for anything that asserts on a number. A live model chooses differently
+  every run and a flaky proof is not a proof. Use `scripted` in the `lantern` scenario and
+  `wander` in a generated delve, where the script's cast does not exist.
 - Set `PORTALE_DB` to a path unique to this run so concurrent runs do not share state.
 - Run the doctor call and require `ok:true` and the `dm` you expected.
 - Never drive an instance this run did not start. A turn is a write.
@@ -24,8 +25,10 @@ recipe.
 - Emulate a phone. The harness defaults to 390x844 and the app is mobile-first.
 - Prefer the `data-testid` handles listed in the skill over CSS classes or DOM position.
 - Gate on `!document.body.dataset.busy` after clicking Act. Never use a fixed sleep.
-- Start each recipe from a fresh session unless its preconditions say otherwise. Clearing
-  `localStorage` or using a new database gives you one.
+- Start each recipe from a fresh server, not merely a fresh session. `scripted` and `wander`
+  both keep their cursor in the director object, which `server.ts` builds once per process,
+  so a second session on the same instance starts mid-script. Clearing `localStorage` gives
+  you a new session; only a restart gives you turn one.
 - Pair every screenshot with a `dump` so the proof is greppable.
 
 ## Proof and skip reporting
@@ -61,3 +64,7 @@ behaviour. It then uses exactly four H2 sections in this order.
   resulting state change, plus out-of-character messages.
 - [Engine authority](./engine-authority.md) covers the engine overruling the Dungeon Master,
   which is the product's central claim and the thing most likely to regress silently.
+- [Vows and clocks](./vows-and-clocks.md) covers the goal track and the pressure clocks: what
+  is shown, what the DM may nominate, and what the engine refuses.
+- [Places and the map](./places-and-map.md) covers rooms, exits, movement, the map that draws
+  only what you have seen, and procedurally generated delves.

@@ -35,9 +35,19 @@ node src/server.ts
 
 It is ready when it prints `portale listening on http://127.0.0.1:8787`.
 
-`PORTALE_DM=scripted` swaps the Dungeon Master for a fixed script. Use it for anything that
+`PORTALE_DM` swaps the Dungeon Master for something deterministic. Use one for anything that
 asserts on mechanics, because a live model makes a different choice every run and a flaky
 proof is not a proof. Drop it only when the thing under test IS the model.
+
+| Value | What it is | Use it for |
+| --- | --- | --- |
+| `scripted` | fixed proposals, welded to the tavern cast | the hand-authored `lantern` scenario |
+| `wander` | reads the brief and picks something legal | generated delves, or any scenario |
+| unset | the local model over Ollama | proving the model itself |
+
+`scripted` names Marga and `c_harbourmaster` on every turn. In a generated delve neither
+exists, so the engine correctly refuses every turn and you photograph a wall of rulings.
+Use `wander` there.
 
 Running against the live model additionally needs Ollama serving and the model pulled.
 
@@ -55,11 +65,15 @@ One read-only call answers whether an instance is worth driving.
 (Invoke-WebRequest "http://127.0.0.1:8787/api/health" -UseBasicParsing).Content
 ```
 
-Expect `{"ok":true,"dm":"...","scenarios":["lantern"]}`.
+Expect `{"ok":true,"dm":"...","scenarios":["lantern","delve"]}`.
 
-Read `dm` before you trust anything. `scripted` means mechanics are deterministic and safe
-to assert on. `ollama:<model>` means every run differs, so assert on invariants such as
-"a roll happened" rather than on specific numbers or wording.
+Read `dm` before you trust anything. `scripted` and `wandering` mean mechanics are
+deterministic and safe to assert on. `ollama:<model>` means every run differs, so assert on
+invariants such as "a roll happened" rather than on specific numbers or wording.
+
+`GET /api/scenarios` says more: each entry carries a `generated` flag. A generated scenario
+takes a seed and builds its rooms, so `lantern` is always the same four rooms and `delve` is
+a different dungeon per seed.
 
 If it does not answer, check nothing else already owns the port.
 
@@ -103,11 +117,21 @@ Use these stable handles rather than positions or classes.
 | `[data-testid=send]` | the Act button |
 | `[data-testid=log]` | the transcript container |
 | `[data-testid=cast]` | the NPC chips |
+| `[data-testid=npc-<id>]` | one NPC chip |
 | `[data-testid=hp]` | the player's hit points |
 | `[data-testid=mode]` | exploration or combat |
 | `[data-testid=thinking]` | the DM-is-working indicator |
+| `[data-testid=vows]` | the vow tracks, hidden when there are none |
+| `[data-testid=vow-<id>]` | one vow; `dataset.boxes` is its progress out of 10 |
+| `[data-testid=clocks]` | the open clocks |
+| `[data-testid=clock-<id>]` | one clock; `dataset.filled` is its segments |
+| `[data-testid=exits]` | the ways out of this room |
+| `[data-testid=exit-<dir>]` | one exit button, disabled in combat |
+| `[data-testid=mapwrap]` | the map, `hidden` until a second room is known |
+| `[data-testid=map]` | the map SVG itself |
 | `document.body.dataset.busy` | present while a turn is in flight |
-| `.you` `.dm` `.roll` `.mech` `.ruled` | transcript line kinds |
+| `document.body.dataset.mode` | exploration or combat, without reading text |
+| `.you` `.dm` `.roll` `.mech` `.ruled` `.move` `.clock` `.vow` | transcript line kinds |
 
 Always gate on `!document.body.dataset.busy` after clicking Act. A fixed sleep will pass
 before the model has answered and capture an empty screen.

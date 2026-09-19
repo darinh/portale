@@ -28,7 +28,8 @@ update to show what changed.
 Preconditions:
 
 - Portale is healthy and `dm` is `scripted`, so the roll and the damage are deterministic.
-- A fresh session, so the transcript starts at the opening narration.
+- A server started for this recipe and not yet driven. The scripted cursor is per process,
+  so a session begun on an already-driven instance does not get script entry one.
 
 - **Submit.** Enter an attempt and act. Run
   `type "[data-testid=utterance]" "I draw my blade and strike at Marga"` then
