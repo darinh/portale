@@ -9,6 +9,10 @@
  * Turn one uses `engage` rather than `attack` so the scripted harness actually enters
  * combat. Reprisals only happen in combat, so a script that never starts a fight cannot
  * demonstrate the world hitting back.
+ *
+ * Turn one also reveals a clue that IS in the opening room, and the repeating entry names
+ * one that is three rooms away, so the harness exercises both a legal discovery and the
+ * engine refusing evidence the player could not have found.
  */
 
 import type { Proposal } from './director.ts';
@@ -26,6 +30,7 @@ export const DEMO_SCRIPT: Proposal[] = [
     introduces: null,
     tick: 'c_harbourmaster',
     milestone: 'none',
+    reveals: 'c_ledger_page',
   },
   {
     narration: 'She twists away, and for a moment the whole room seems to hold its breath.',
@@ -38,5 +43,6 @@ export const DEMO_SCRIPT: Proposal[] = [
     introduces: null,
     tick: 'c_harbourmaster',
     milestone: 'none',
+    reveals: 'c_manifest',
   },
 ];

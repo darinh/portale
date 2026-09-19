@@ -13,7 +13,8 @@ import type { Proposal } from '../src/director.ts';
 import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
 import { adjudicate } from '../src/rules.ts';
-import { apply, clockId, entityId, fold, meter, project, vowId, TICKS_PER_MILESTONE } from '../src/world.ts';
+import { apply, clockId, entityId, fold, meter, project, unfoundFor, vowId, TICKS_PER_MILESTONE } from '../src/world.ts';
+import type { WorldEvent } from '../src/world.ts';
 
 const SCENARIO = SCENARIOS[0]!;
 const MARGA = entityId('e_marga');
@@ -30,6 +31,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     introduces: null,
     tick: 'c_harbourmaster',
     milestone: 'none',
+    reveals: 'none',
     ...over,
   };
 }
@@ -311,14 +313,82 @@ test('a milestone lands when the turn actually produced something', () => {
   const w = begin(SCENARIO, seed(3));
   const { events } = adjudicate(
     w,
-    briefFor(w, 'I slip down to the cellar to look for the ledger'),
-    proposal({ op: 'move', direction: 'down', milestone: DEBT }),
+    briefFor(w, 'I search behind the bar'),
+    proposal({ op: 'skill_check', difficulty: 5, milestone: DEBT, reveals: 'c_ledger_page' }),
   );
 
-  assert.ok(events.some((e) => e.kind === 'moved'), 'this turn did something');
+  assert.ok(events.some((e) => e.kind === 'found'), 'this turn turned something up');
   const marked = events.find((e) => e.kind === 'progressed');
   assert.ok(marked && marked.kind === 'progressed');
   assert.equal(marked.by, TICKS_PER_MILESTONE.dangerous, 'the rank sets the step, not the model');
+});
+
+test('while clues remain unfound a vow advances only on discovery', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I slip down to the cellar'),
+    proposal({ op: 'move', direction: 'down', milestone: DEBT, reveals: 'none' }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'moved'), 'the turn did do something');
+  assert.ok(
+    events.some((e) => e.kind === 'ruled' && e.why === 'unearned-milestone'),
+    'but moving is not learning, so the vow must not advance',
+  );
+  assert.ok(!events.some((e) => e.kind === 'progressed'));
+});
+
+test('the DM cannot reveal a clue that belongs to another room', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I look around the common room'),
+    proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_manifest' }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'clue-elsewhere'));
+  assert.ok(!events.some((e) => e.kind === 'found'));
+});
+
+test('a clue cannot be found twice', () => {
+  let w = begin(SCENARIO, seed(3));
+  const first = adjudicate(w, briefFor(w, 'I search behind the bar'), proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }));
+  for (const e of first.events) w = apply(w, e);
+  assert.ok(first.events.some((e) => e.kind === 'found'));
+
+  const again = adjudicate(w, briefFor(w, 'I search behind the bar again'), proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }));
+  assert.ok(again.events.some((e) => e.kind === 'ruled' && e.why === 'no-such-clue'));
+  assert.ok(!again.events.some((e) => e.kind === 'found'));
+});
+
+test('a found clue is offered to the DM no longer, so it cannot be re-revealed', () => {
+  let w = begin(SCENARIO, seed(3));
+  const before = briefFor(w, 'I search behind the bar');
+  assert.ok(before.cluesHere.some((c) => c.id === 'c_ledger_page'));
+
+  const { events } = adjudicate(w, before, proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }));
+  for (const e of events) w = apply(w, e);
+
+  const after = briefFor(w, 'I look again');
+  assert.ok(!after.cluesHere.some((c) => c.id === 'c_ledger_page'), 'it left the enum');
+});
+
+test('the DM is only offered clues in the room the player is standing in', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I look around');
+  assert.ok(brief.cluesHere.length > 0);
+  assert.ok(
+    brief.cluesHere.every((c) => c.at === w.here),
+    'a clue three rooms away must not be nameable',
+  );
+});
+
+test('an undiscovered clue never reaches the browser', () => {
+  const w = begin(SCENARIO, seed(3));
+  const serialized = JSON.stringify(project(w));
+  assert.ok(!serialized.includes('torn ledger page'), 'unfound clue text must not ship');
+  assert.equal(project(w).leads.length, 0);
 });
 
 test('a vow the player never swore is refused', () => {
@@ -331,32 +401,84 @@ test('a vow the player never swore is refused', () => {
   assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'no-such-vow'));
 });
 
-test('a vow can be fulfilled, once, and then leaves the enum', () => {
-  let w = begin(SCENARIO, seed(3));
-  let fulfilments = 0;
+type Step = { readonly kind: 'reveal'; readonly id: string } | { readonly kind: 'move'; readonly dir: Proposal['direction'] };
 
-  for (let i = 0; i < 12; i++) {
-    const dir = i % 2 === 0 ? 'down' : 'up';
-    const { events } = adjudicate(
-      w,
-      briefFor(w, 'onward'),
-      proposal({ op: 'move', direction: dir, milestone: DEBT }),
-    );
-    fulfilments += events.filter((e) => e.kind === 'fulfilled').length;
+/**
+ * A route through the Drowned Lantern that picks up all four clues and then keeps walking.
+ * Written out rather than wandered, so a failure names the step that broke.
+ */
+const LANTERN_WALK: readonly Step[] = [
+  { kind: 'reveal', id: 'c_ledger_page' },
+  { kind: 'move', dir: 'down' },
+  { kind: 'reveal', id: 'c_crate_mark' },
+  { kind: 'move', dir: 'up' },
+  { kind: 'move', dir: 'out' },
+  { kind: 'reveal', id: 'c_boot_prints' },
+  { kind: 'move', dir: 'north' },
+  { kind: 'reveal', id: 'c_manifest' },
+  { kind: 'move', dir: 'south' },
+  { kind: 'move', dir: 'in' },
+  { kind: 'move', dir: 'down' },
+  { kind: 'move', dir: 'up' },
+];
+
+function walk(start: Session['world'], steps: readonly Step[], seen?: (e: readonly WorldEvent[]) => void): Session['world'] {
+  let w = start;
+  for (const s of steps) {
+    const p =
+      s.kind === 'reveal'
+        ? proposal({ op: 'skill_check', difficulty: 5, milestone: DEBT, reveals: s.id })
+        : proposal({ op: 'move', direction: s.dir, milestone: DEBT });
+    const { events } = adjudicate(w, briefFor(w, 'onward'), p);
+    seen?.(events);
     w = fold(w, events);
   }
+  return w;
+}
+
+test('a vow can be fulfilled, once, and then leaves the enum', () => {
+  let fulfilments = 0;
+  const w = walk(begin(SCENARIO, seed(3)), LANTERN_WALK, (events) => {
+    fulfilments += events.filter((e) => e.kind === 'fulfilled').length;
+  });
 
   assert.equal(w.vows.get(DEBT)!.done, true, 'the vow must be completable');
   assert.equal(fulfilments, 1, 'and fulfilled exactly once');
   assert.ok(!briefFor(w, 'x').vows.some((v) => v.id === DEBT), 'a kept vow leaves the enum');
 });
 
+test('once every clue is found, the vow advances on action again', () => {
+  const found = walk(begin(SCENARIO, seed(3)), LANTERN_WALK.slice(0, 8));
+  assert.equal(unfoundFor(found, DEBT).length, 0, 'all four are in hand');
+
+  const { events } = adjudicate(
+    found,
+    briefFor(found, 'I head back'),
+    proposal({ op: 'move', direction: 'south', milestone: DEBT, reveals: 'none' }),
+  );
+
+  assert.ok(
+    events.some((e) => e.kind === 'progressed'),
+    'with nothing left to learn, the remaining work is acting on what you know',
+  );
+});
+
+test('with every clue found, talk still does not advance the vow', () => {
+  const found = walk(begin(SCENARIO, seed(3)), LANTERN_WALK.slice(0, 8));
+  assert.equal(unfoundFor(found, DEBT).length, 0);
+
+  const { events } = adjudicate(
+    found,
+    briefFor(found, 'I think it over'),
+    proposal({ op: 'narrate_only', milestone: DEBT, reveals: 'none' }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'unearned-milestone'));
+  assert.equal(events.some((e) => e.kind === 'progressed'), false);
+});
+
 test('the vow track replays rather than stamping the final value', () => {
-  let w = begin(SCENARIO, seed(3));
-  for (let i = 0; i < 3; i++) {
-    const dir = i % 2 === 0 ? 'down' : 'up';
-    w = fold(w, adjudicate(w, briefFor(w, 'on'), proposal({ op: 'move', direction: dir, milestone: DEBT })).events);
-  }
+  const w = walk(begin(SCENARIO, seed(3)), LANTERN_WALK.slice(0, 6));
 
   const shown = project(w)
     .transcript.filter((l) => l.kind === 'vow')

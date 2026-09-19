@@ -90,6 +90,18 @@
         color: var(--gold); font-style: italic;
         border-left: 2px solid var(--gold); padding-left: 10px;
       }
+      .line.clue {
+        color: var(--ok); border-left: 2px solid var(--ok); padding-left: 10px;
+      }
+      #leads { padding: 0 16px 10px; }
+      #leads .label {
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+        color: var(--dim); display: block; margin-bottom: 5px;
+      }
+      .lead {
+        font-size: 12px; color: var(--ok); opacity: 0.85;
+        padding: 3px 0 3px 10px; border-left: 1px solid var(--edge);
+      }
       .exit {
         font-size: 12px; background: none; border: 1px solid var(--gold); color: var(--gold);
         border-radius: 99px; padding: 5px 12px; cursor: pointer; font-family: inherit;
@@ -135,6 +147,7 @@
     </div>
     <div id="cast" data-testid="cast"></div>
     <div id="clocks" data-testid="clocks"></div>
+    <div id="leads" data-testid="leads" hidden></div>
     <div id="exits" data-testid="exits"></div>
     <div id="thinking" data-testid="thinking" hidden>The DM considers…</div>
 
@@ -155,6 +168,7 @@
       const cast = $('#cast');
       const clocks = $('#clocks');
       const vowsEl = $('#vows');
+      const leadsEl = $('#leads');
       const exits = $('#exits');
       const mapwrap = $('#mapwrap');
       const mapEl = $('#map');
@@ -316,6 +330,22 @@
 
           el.append(pips, name);
           clocks.append(el);
+        }
+
+        leadsEl.replaceChildren();
+        leadsEl.hidden = view.leads.length === 0;
+        if (view.leads.length > 0) {
+          const label = document.createElement('span');
+          label.className = 'label';
+          label.textContent = `what you know (${view.leads.length})`;
+          leadsEl.append(label);
+          for (const l of view.leads) {
+            const el = document.createElement('div');
+            el.className = 'lead';
+            el.dataset.testid = `lead-${l.id}`;
+            el.textContent = l.what;
+            leadsEl.append(el);
+          }
         }
 
         exits.replaceChildren();

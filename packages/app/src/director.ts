@@ -16,8 +16,8 @@
  * be named, because it is not in the enum.
  */
 
-import type { Clock, Direction, Entity, EntityId, Location, Mode, Vow, World } from './world.ts';
-import { presentHere, reprisalActor } from './world.ts';
+import type { Clock, Clue, Direction, Entity, EntityId, Location, Mode, Vow, World } from './world.ts';
+import { cluesHere, presentHere, reprisalActor } from './world.ts';
 
 /**
  * Pre-allocated slots for NPCs the DM invents mid-scene. They exist so the target field
@@ -108,6 +108,12 @@ export interface SceneBrief {
   readonly clocks: readonly Clock[];
   /** Vows still open. The DM may claim progress on one; the engine decides if it counts. */
   readonly vows: readonly Vow[];
+  /**
+   * Undiscovered clues in THIS room. The DM may reveal one of these and no others, so it
+   * cannot invent evidence, cannot hand over a clue that lives three rooms away, and
+   * cannot re-reveal something already known.
+   */
+  readonly cluesHere: readonly Clue[];
 }
 
 export type Target = EntityId | MintSlot;
@@ -130,11 +136,17 @@ export interface Proposal {
   /**
    * A vow this turn advanced, or 'none'. Enum built from vows still open.
    *
-   * The engine refuses the claim unless the turn actually produced something: a successful
-   * roll, a wound, a death, a filled clock, or a move. Otherwise a narrator could talk the
-   * player to their goal, which is the yes-manning failure with extra ceremony.
+   * The engine refuses the claim unless the turn actually produced something. For a vow
+   * that still has clues waiting to be found, "something" means finding one: the player
+   * has to learn a thing, not win a fight. Otherwise a narrator could talk the player to
+   * their goal, which is the yes-manning failure with extra ceremony.
    */
   readonly milestone: string;
+  /**
+   * A clue revealed this turn, or 'none'. Enum built from undiscovered clues in the
+   * current room, so evidence cannot be conjured and cannot arrive from elsewhere.
+   */
+  readonly reveals: string;
 }
 
 export interface Director {
@@ -216,9 +228,10 @@ export function buildSchema(brief: SceneBrief): object {
       },
       tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },
       milestone: { type: 'string', enum: ['none', ...brief.vows.map((v) => v.id as string)] },
+      reveals: { type: 'string', enum: ['none', ...brief.cluesHere.map((c) => c.id as string)] },
       narration: { type: 'string' },
     },
-    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'milestone', 'narration'],
+    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'milestone', 'reveals', 'narration'],
   };
 }
 
@@ -247,6 +260,12 @@ export function renderPrompt(brief: SceneBrief): string {
     brief.reprisalBy === null
       ? ''
       : `\n${brief.reprisalBy.name} is going to come at you this turn, whatever you do. Work that into the narration as a threat in motion. Do NOT say whether it connects; the engine decides that after you speak.\n`;
+  const clues =
+    brief.cluesHere.length === 0
+      ? ''
+      : `\nThings in THIS ROOM the player has not discovered yet. If what they are doing would plausibly turn one up, name it with "reveals" and describe it in your narration. Otherwise "none". Never describe one of these without revealing it:\n${brief.cluesHere
+          .map((c) => `  ${c.id} = ${c.what}`)
+          .join('\n')}\n`;
 
   if (brief.outOfCharacter) {
     return `You are the Dungeon Master of a tabletop RPG. The player has stopped playing for a moment and is speaking to YOU, not acting in the world.
@@ -280,7 +299,7 @@ ${roster}
   ~new1, ~new2 = someone NEW walking into the scene. Use one of these as "target" with
                  whatever op fits, and fill in "introduces" with their name and who they
                  are. Leave "introduces" null for everything else.
-${scenery}${history}${clocks}${vows}${reprisal}
+${scenery}${history}${clocks}${vows}${clues}${reprisal}
 The player says: "${brief.utterance}"
 
 FIRST choose "op". Choose it from what the player is TRYING TO DO, before you write any prose.
@@ -454,6 +473,7 @@ export function wanderingDirector(): Director {
       const anyone = brief.inReach[0];
       const clock = brief.clocks[0];
       const vow = brief.vows[0];
+      const clue = brief.cluesHere[0];
 
       const base = {
         target: (foe?.id ?? anyone?.id ?? MINT_SLOTS[0]) as Target,
@@ -464,6 +484,9 @@ export function wanderingDirector(): Director {
         introduces: null,
         tick: turn % 3 === 0 && clock !== undefined ? (clock.id as string) : 'none',
         milestone: turn % 4 === 0 && vow !== undefined ? (vow.id as string) : 'none',
+        // Always reveal when there is something here to reveal. A model-free DM that never
+        // finds anything cannot walk a clue chain, which makes it useless for testing one.
+        reveals: clue !== undefined ? (clue.id as string) : 'none',
       };
 
       if (brief.outOfCharacter) {
@@ -521,6 +544,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     exits: [...place.exits.keys()],
     clocks: [...w.clocks.values()].filter((c) => !c.done),
     vows: [...w.vows.values()].filter((v) => !v.done),
+    cluesHere: cluesHere(w),
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }

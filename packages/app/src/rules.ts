@@ -18,7 +18,7 @@
 
 import { roll } from './dice.ts';
 import type { Proposal, SceneBrief } from './director.ts';
-import { apply, clockId, entityId, presentHere, reprisalActor, vowId, TICKS_PER_MILESTONE, VOW_TICKS } from './world.ts';
+import { apply, clockId, clueId, entityId, presentHere, reprisalActor, unfoundFor, vowId, TICKS_PER_MILESTONE, VOW_TICKS } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
 /**
@@ -147,6 +147,42 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     );
   }
 
+  function foundSomething(): boolean {
+    return events.some((e) => e.kind === 'found');
+  }
+
+  /**
+   * Reveal a clue, if the DM named one that is actually here and actually unfound.
+   *
+   * Runs before the milestone check, because finding a thing is what earns ground on a
+   * vow that still has things to find.
+   */
+  function applyReveal(): void {
+    if (proposal.reveals === 'none') return;
+
+    const clue = working.clues.get(clueId(proposal.reveals));
+    if (clue === undefined || clue.found) {
+      rule({
+        kind: 'drop',
+        why: 'no-such-clue',
+        detail: 'The DM offered up something that was not there to find.',
+      });
+      return;
+    }
+    // Split from the check above so each half is mutation-testable on its own. This one
+    // is what stops the DM handing over evidence from a room the player is not in.
+    if (clue.at !== working.here) {
+      rule({
+        kind: 'drop',
+        why: 'clue-elsewhere',
+        detail: 'That is not something you could have found here.',
+      });
+      return;
+    }
+
+    emit({ kind: 'found', clue: clue.id });
+  }
+
   function applyMilestone(): void {
     if (proposal.milestone === 'none') return;
 
@@ -159,7 +195,25 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
       });
       return;
     }
-    if (!earnedSomething()) {
+    /**
+     * The three-clue rule, enforced. While a vow still has clues waiting to be found,
+     * the ONLY thing that advances it is finding one. Winning a fight does not teach you
+     * who holds the debt.
+     *
+     * Once every clue is found the vow falls back to the general earned-something test,
+     * because by then the remaining work is acting on what you know rather than learning
+     * more, and there is nothing left to discover.
+     */
+    const stillHidden = unfoundFor(working, vow.id).length > 0;
+    if (stillHidden && !foundSomething()) {
+      rule({
+        kind: 'drop',
+        why: 'unearned-milestone',
+        detail: 'You are no closer. Nothing you did this turn told you anything new.',
+      });
+      return;
+    }
+    if (!stillHidden && !earnedSomething()) {
       rule({
         kind: 'drop',
         why: 'unearned-milestone',
@@ -185,6 +239,9 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     // Clocks advance before the world's turn, so a tick that fills a danger clock lands
     // before the foe swings rather than after the dust has settled.
     applyTick();
+    // Discovery before milestones, because finding a thing is what earns ground on a vow
+    // that still has things to find.
+    applyReveal();
     // Milestones last, because they judge what the rest of the turn produced.
     applyMilestone();
 

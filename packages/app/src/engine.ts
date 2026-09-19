@@ -10,8 +10,8 @@ import type { Seed } from './dice.ts';
 import { DirectorContractBreach, briefFor } from './director.ts';
 import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
-import { apply, clockId, entityId, locationId, meter, project, vowId } from './world.ts';
-import type { Clock, ClockId, Direction, Entity, EntityId, Location, LocationId, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
+import { apply, clockId, clueId, entityId, locationId, meter, project, vowId } from './world.ts';
+import type { Clock, ClockId, Clue, ClueId, Direction, Entity, EntityId, Location, LocationId, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
 import { generateDelve } from './mapgen.ts';
 
 export interface Scenario {
@@ -23,6 +23,7 @@ export interface Scenario {
   readonly rooms: readonly LocationDef[];
   readonly clocks: readonly ClockDef[];
   readonly vows: readonly VowDef[];
+  readonly clues: readonly ClueDef[];
   readonly start: LocationId;
   readonly mode: World['mode'];
   /** Where the generator put the payoff. Absent for hand-authored scenarios. */
@@ -34,6 +35,21 @@ export interface VowDef {
   readonly id: VowId;
   readonly what: string;
   readonly rank: VowRank;
+}
+
+/**
+ * A clue as an author writes it. Always starts unfound.
+ *
+ * The three-clue rule says a conclusion wants at least three routes to it, so an author
+ * placing one clue per vow has built a session that deadlocks on a single missed roll.
+ * The engine does not count them, because a count is not what makes play good; what it
+ * enforces is that a vow moves on discovery rather than on any success at all.
+ */
+export interface ClueDef {
+  readonly id: ClueId;
+  readonly what: string;
+  readonly at: LocationId;
+  readonly vow: VowId;
 }
 
 /** A clock as an author writes it. Always starts empty. */
@@ -131,6 +147,34 @@ export const SCENARIOS: readonly Scenario[] = [
         rank: 'dangerous',
       },
     ],
+    // Four routes to one answer, in four different rooms, so no single missed roll and no
+    // single avoided room can strand the vow. Three is the floor; the fourth is slack.
+    clues: [
+      {
+        id: clueId('c_ledger_page'),
+        what: 'A torn ledger page behind the bar: the debt was bought out last winter, and the buyer is not the harbourmaster.',
+        at: COMMON,
+        vow: vowId('v_debt'),
+      },
+      {
+        id: clueId('c_crate_mark'),
+        what: 'A crate in the cellar carries a customs seal that was never stamped at this port.',
+        at: CELLAR,
+        vow: vowId('v_debt'),
+      },
+      {
+        id: clueId('c_boot_prints'),
+        what: 'Two sets of boot prints in the yard mud go out to the pier and only one comes back.',
+        at: YARD,
+        vow: vowId('v_debt'),
+      },
+      {
+        id: clueId('c_manifest'),
+        what: 'The pier manifest lists a cargo signed for by a name Marga flinches at.',
+        at: DOCK,
+        vow: vowId('v_debt'),
+      },
+    ],
     cast: [
       { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false, power: 0, at: COMMON },
       { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true, power: 4, at: COMMON },
@@ -178,6 +222,9 @@ export function begin(scenario: Scenario, s: Seed): World {
   const vows = new Map<VowId, Vow>();
   for (const v of scenario.vows) vows.set(v.id, { ...v, progress: 0, done: false });
 
+  const clues = new Map<ClueId, Clue>();
+  for (const c of scenario.clues) clues.set(c.id, { ...c, found: false });
+
   const empty: World = {
     seq: 0,
     seed: s,
@@ -188,6 +235,7 @@ export function begin(scenario: Scenario, s: Seed): World {
     locations,
     clocks,
     vows,
+    clues,
     here: scenario.start,
     log: [],
   };

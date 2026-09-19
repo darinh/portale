@@ -133,6 +133,33 @@ export interface Vow {
   readonly done: boolean;
 }
 
+export type ClueId = string & { readonly __brand: 'ClueId' };
+
+export function clueId(s: string): ClueId {
+  return s as ClueId;
+}
+
+/**
+ * A discoverable piece of information, placed in a room, serving a vow.
+ *
+ * This exists because of the three-clue rule: a conclusion the player needs to reach
+ * should have at least three ways of reaching it, so the session does not deadlock on one
+ * missed roll. The engine does not enforce the count, it enforces the thing the count is
+ * for, which is that a vow advances on DISCOVERY rather than on any success at all.
+ *
+ * Before this, winning a fight advanced an investigation. That is yes-manning wearing a
+ * progress bar: the player was told they were closer to the truth because they had hit
+ * somebody.
+ */
+export interface Clue {
+  readonly id: ClueId;
+  /** Player-facing. What they now know. */
+  readonly what: string;
+  readonly at: LocationId;
+  readonly vow: VowId;
+  readonly found: boolean;
+}
+
 export interface World {
   readonly seq: number;
   readonly seed: Seed;
@@ -143,6 +170,7 @@ export interface World {
   readonly locations: ReadonlyMap<LocationId, Location>;
   readonly clocks: ReadonlyMap<ClockId, Clock>;
   readonly vows: ReadonlyMap<VowId, Vow>;
+  readonly clues: ReadonlyMap<ClueId, Clue>;
   /** Where the player is standing. Everything the DM may reference hangs off this. */
   readonly here: LocationId;
   readonly log: readonly WorldEvent[];
@@ -175,6 +203,7 @@ export type WorldEvent =
   | { readonly kind: 'filled'; readonly clock: ClockId }
   | { readonly kind: 'progressed'; readonly vow: VowId; readonly by: number; readonly why: string }
   | { readonly kind: 'fulfilled'; readonly vow: VowId }
+  | { readonly kind: 'found'; readonly clue: ClueId }
   | { readonly kind: 'mode'; readonly to: Mode }
   /** The engine overruled the DM. Kept in the log because refusals are telemetry. */
   | { readonly kind: 'ruled'; readonly why: string; readonly detail: string };
@@ -232,6 +261,13 @@ export function apply(w: World, e: WorldEvent): World {
       const vows = new Map(w.vows);
       vows.set(e.vow, { ...v, progress: VOW_TICKS, done: true });
       return { ...next, vows };
+    }
+    case 'found': {
+      const c = w.clues.get(e.clue);
+      if (c === undefined || c.found) return next;
+      const clues = new Map(w.clues);
+      clues.set(e.clue, { ...c, found: true });
+      return { ...next, clues };
     }
     case 'mode':
       return { ...next, mode: e.to };
@@ -327,6 +363,13 @@ export interface ViewVow {
   readonly done: boolean;
 }
 
+/** A clue the player has actually found. Undiscovered ones are never shipped. */
+export interface ViewLead {
+  readonly id: ClueId;
+  readonly what: string;
+  readonly vow: VowId;
+}
+
 /** What the browser is allowed to see. Never the World, which holds DM-only lore. */
 export interface PlayerView {
   readonly seq: number;
@@ -340,7 +383,19 @@ export interface PlayerView {
   /** Open clocks only. Secret ones are tracked and never shipped. */
   readonly clocks: readonly ViewClock[];
   readonly vows: readonly ViewVow[];
+  /** What the player knows. An unfound clue has no entry, so its text cannot leak. */
+  readonly leads: readonly ViewLead[];
   readonly transcript: readonly ViewLine[];
+}
+
+/** Undiscovered clues in the room the player is standing in. The DM's whole menu. */
+export function cluesHere(w: World): readonly Clue[] {
+  return [...w.clues.values()].filter((c) => !c.found && c.at === w.here);
+}
+
+/** Clues serving this vow that nobody has turned up yet. */
+export function unfoundFor(w: World, vow: VowId): readonly Clue[] {
+  return [...w.clues.values()].filter((c) => !c.found && c.vow === vow);
 }
 
 function nameOf(w: World, id: EntityId): string {
@@ -438,6 +493,12 @@ export function project(w: World): PlayerView {
         transcript.push({ kind: 'vowdone', text: `Sworn and done. ${v.what}` });
         break;
       }
+      case 'found': {
+        const c = w.clues.get(e.clue);
+        if (c === undefined) break;
+        transcript.push({ kind: 'clue', text: c.what });
+        break;
+      }
       default:
         break;
     }
@@ -478,6 +539,11 @@ export function project(w: World): PlayerView {
       done: v.done,
     })),
     present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
+    // Found clues only. An undiscovered clue has no entry here, so the thing the player
+    // has not learned yet cannot be read out of the payload.
+    leads: [...w.clues.values()]
+      .filter((c) => c.found)
+      .map((c) => ({ id: c.id, what: c.what, vow: c.vow })),
     transcript,
   };
 }

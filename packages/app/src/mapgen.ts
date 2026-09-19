@@ -18,9 +18,9 @@
  */
 
 import type { Seed } from './dice.ts';
-import { locationId, entityId, clockId, vowId, meter } from './world.ts';
+import { locationId, entityId, clockId, clueId, vowId, meter } from './world.ts';
 import type { Direction, Entity, LocationId } from './world.ts';
-import type { ClockDef, LocationDef, Scenario, VowDef } from './engine.ts';
+import type { ClockDef, ClueDef, LocationDef, Scenario, VowDef } from './engine.ts';
 
 /** Deterministic stream. Same seed, same delve, forever. */
 function stream(s: Seed): () => number {
@@ -277,6 +277,32 @@ export function generateDelve(s: Seed, opts: DelveOptions = {}): Scenario {
     },
   ];
 
+  /**
+   * Three clues, in three different rooms, never in the entrance.
+   *
+   * Three is the floor the three-clue rule sets, and it is a floor for a structural
+   * reason rather than a stylistic one: the vow cannot advance without a discovery, so a
+   * generator that placed one clue would build delves that deadlock whenever the player
+   * misses that single room. Placing them in distinct rooms is the half that matters,
+   * since three clues in one room is one room's worth of chances.
+   */
+  const clueSpots = [...elsewhere];
+  const CLUE_TEXT = [
+    'A ledger leaf, water-blurred but legible: the same cargo entered this port twice and left once.',
+    'A tally scratched into the wall counts deliveries nobody recorded upstairs.',
+    'A signet pressed into old wax, and it is not the harbourmaster\u2019s mark.',
+  ];
+  const clues: ClueDef[] = [];
+  for (let i = 0; i < CLUE_TEXT.length && clueSpots.length > 0; i++) {
+    const spot = clueSpots.splice(Math.floor(rnd() * clueSpots.length), 1)[0]!;
+    clues.push({
+      id: clueId(`c_lead_${i + 1}`),
+      what: CLUE_TEXT[i]!,
+      at: idOf.get(key(spot))!,
+      vow: vowId('v_ledger'),
+    });
+  }
+
   const opening = rooms.find((r) => r.id === startId)!;
 
   return {
@@ -289,6 +315,7 @@ export function generateDelve(s: Seed, opts: DelveOptions = {}): Scenario {
     rooms,
     clocks,
     vows,
+    clues,
     cast,
     // Kept so a caller can assert the goal is reachable and distant, which is the whole
     // point of placing it by graph distance rather than at random.
