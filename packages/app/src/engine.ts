@@ -10,8 +10,8 @@ import type { Seed } from './dice.ts';
 import { DirectorContractBreach, briefFor } from './director.ts';
 import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
-import { apply, clockId, entityId, locationId, meter, project } from './world.ts';
-import type { Clock, ClockId, Direction, Entity, EntityId, Location, LocationId, PlayerView, World } from './world.ts';
+import { apply, clockId, entityId, locationId, meter, project, vowId } from './world.ts';
+import type { Clock, ClockId, Direction, Entity, EntityId, Location, LocationId, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
 
 export interface Scenario {
   readonly id: string;
@@ -21,8 +21,16 @@ export interface Scenario {
   readonly cast: readonly Omit<Entity, 'dead'>[];
   readonly rooms: readonly LocationDef[];
   readonly clocks: readonly ClockDef[];
+  readonly vows: readonly VowDef[];
   readonly start: LocationId;
   readonly mode: World['mode'];
+}
+
+/** A vow as an author writes it. Always starts unmarked. */
+export interface VowDef {
+  readonly id: VowId;
+  readonly what: string;
+  readonly rank: VowRank;
 }
 
 /** A clock as an author writes it. Always starts empty. */
@@ -113,6 +121,13 @@ export const SCENARIOS: readonly Scenario[] = [
         exits: [['south', YARD]],
       },
     ],
+    vows: [
+      {
+        id: vowId('v_debt'),
+        what: 'Learn who really holds Marga\u2019s debt, and why the harbourmaster wants it kept quiet',
+        rank: 'dangerous',
+      },
+    ],
     cast: [
       { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false, power: 0, at: COMMON },
       { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true, power: 4, at: COMMON },
@@ -145,6 +160,9 @@ export function begin(scenario: Scenario, s: Seed): World {
   const clocks = new Map<ClockId, Clock>();
   for (const c of scenario.clocks) clocks.set(c.id, { ...c, filled: 0, done: false });
 
+  const vows = new Map<VowId, Vow>();
+  for (const v of scenario.vows) vows.set(v.id, { ...v, progress: 0, done: false });
+
   const empty: World = {
     seq: 0,
     seed: s,
@@ -154,6 +172,7 @@ export function begin(scenario: Scenario, s: Seed): World {
     entities,
     locations,
     clocks,
+    vows,
     here: scenario.start,
     log: [],
   };

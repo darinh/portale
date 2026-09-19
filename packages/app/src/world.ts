@@ -101,6 +101,38 @@ export interface Clock {
   readonly done: boolean;
 }
 
+export type VowId = string & { readonly __brand: 'VowId' };
+
+export function vowId(s: string): VowId {
+  return s as VowId;
+}
+
+export type VowRank = 'troublesome' | 'dangerous' | 'formidable';
+
+/** Ironsworn progress: ten boxes of four ticks, and harder vows crawl. */
+export const VOW_TICKS = 40;
+export const TICKS_PER_MILESTONE: Record<VowRank, number> = {
+  troublesome: 12,
+  dangerous: 8,
+  formidable: 4,
+};
+
+/**
+ * Why the player is here. Without one, a session is a series of unrelated turns, which is
+ * the difference between a game and a conversation with dice.
+ *
+ * Progress is engine-marked. The DM may claim a turn earned a milestone, but the engine
+ * refuses the claim unless something actually happened, so a narrator cannot talk the
+ * player toward their goal.
+ */
+export interface Vow {
+  readonly id: VowId;
+  readonly what: string;
+  readonly rank: VowRank;
+  readonly progress: number;
+  readonly done: boolean;
+}
+
 export interface World {
   readonly seq: number;
   readonly seed: Seed;
@@ -110,6 +142,7 @@ export interface World {
   readonly entities: ReadonlyMap<EntityId, Entity>;
   readonly locations: ReadonlyMap<LocationId, Location>;
   readonly clocks: ReadonlyMap<ClockId, Clock>;
+  readonly vows: ReadonlyMap<VowId, Vow>;
   /** Where the player is standing. Everything the DM may reference hangs off this. */
   readonly here: LocationId;
   readonly log: readonly WorldEvent[];
@@ -140,6 +173,8 @@ export type WorldEvent =
   | { readonly kind: 'moved'; readonly to: LocationId; readonly via: Direction }
   | { readonly kind: 'ticked'; readonly clock: ClockId; readonly by: number; readonly why: string }
   | { readonly kind: 'filled'; readonly clock: ClockId }
+  | { readonly kind: 'progressed'; readonly vow: VowId; readonly by: number; readonly why: string }
+  | { readonly kind: 'fulfilled'; readonly vow: VowId }
   | { readonly kind: 'mode'; readonly to: Mode }
   /** The engine overruled the DM. Kept in the log because refusals are telemetry. */
   | { readonly kind: 'ruled'; readonly why: string; readonly detail: string };
@@ -183,6 +218,20 @@ export function apply(w: World, e: WorldEvent): World {
       const clocks = new Map(w.clocks);
       clocks.set(e.clock, { ...c, filled: c.segments, done: true });
       return { ...next, clocks };
+    }
+    case 'progressed': {
+      const v = w.vows.get(e.vow);
+      if (v === undefined || v.done) return next;
+      const vows = new Map(w.vows);
+      vows.set(e.vow, { ...v, progress: Math.max(0, Math.min(v.progress + e.by, VOW_TICKS)) });
+      return { ...next, vows };
+    }
+    case 'fulfilled': {
+      const v = w.vows.get(e.vow);
+      if (v === undefined) return next;
+      const vows = new Map(w.vows);
+      vows.set(e.vow, { ...v, progress: VOW_TICKS, done: true });
+      return { ...next, vows };
     }
     case 'mode':
       return { ...next, mode: e.to };
@@ -269,6 +318,15 @@ export interface ViewClock {
   readonly done: boolean;
 }
 
+export interface ViewVow {
+  readonly id: VowId;
+  readonly what: string;
+  readonly rank: VowRank;
+  /** Filled boxes out of ten. Ironsworn draws ticks; the player reads boxes. */
+  readonly boxes: number;
+  readonly done: boolean;
+}
+
 /** What the browser is allowed to see. Never the World, which holds DM-only lore. */
 export interface PlayerView {
   readonly seq: number;
@@ -281,6 +339,7 @@ export interface PlayerView {
   readonly map: readonly MapRoom[];
   /** Open clocks only. Secret ones are tracked and never shipped. */
   readonly clocks: readonly ViewClock[];
+  readonly vows: readonly ViewVow[];
   readonly transcript: readonly ViewLine[];
 }
 
@@ -296,6 +355,7 @@ export function project(w: World): PlayerView {
   // Reading w.clocks while walking history would stamp today's number onto every tick
   // that ever happened.
   const running = new Map<ClockId, number>();
+  const vowRunning = new Map<VowId, number>();
 
   const transcript: ViewLine[] = [];
   for (const e of w.log) {
@@ -360,6 +420,24 @@ export function project(w: World): PlayerView {
         transcript.push({ kind: 'clockdone', text: c.payoff });
         break;
       }
+      case 'progressed': {
+        const v = w.vows.get(e.vow);
+        if (v === undefined) break;
+        const at = Math.max(0, Math.min((vowRunning.get(e.vow) ?? 0) + e.by, VOW_TICKS));
+        vowRunning.set(e.vow, at);
+        transcript.push({
+          kind: 'vow',
+          text: `${v.what}  ${Math.floor(at / 4)}/10`,
+        });
+        break;
+      }
+      case 'fulfilled': {
+        const v = w.vows.get(e.vow);
+        if (v === undefined) break;
+        vowRunning.set(e.vow, VOW_TICKS);
+        transcript.push({ kind: 'vowdone', text: `Sworn and done. ${v.what}` });
+        break;
+      }
       default:
         break;
     }
@@ -392,6 +470,13 @@ export function project(w: World): PlayerView {
     clocks: [...w.clocks.values()]
       .filter((c) => c.visibility === 'open')
       .map((c) => ({ id: c.id, name: c.name, kind: c.kind, filled: c.filled, segments: c.segments, done: c.done })),
+    vows: [...w.vows.values()].map((v) => ({
+      id: v.id,
+      what: v.what,
+      rank: v.rank,
+      boxes: Math.floor(v.progress / 4),
+      done: v.done,
+    })),
     present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
     transcript,
   };
