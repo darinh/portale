@@ -45,9 +45,30 @@ export interface Entity {
    * structural.
    */
   readonly power: number;
+  /** Where they are. The DM may only reference entities standing where the player is. */
+  readonly at: LocationId;
 }
 
 export type Mode = 'exploration' | 'combat';
+
+export type LocationId = string & { readonly __brand: 'LocationId' };
+
+export function locationId(s: string): LocationId {
+  return s as LocationId;
+}
+
+export const DIRECTIONS = ['north', 'south', 'east', 'west', 'up', 'down', 'in', 'out'] as const;
+export type Direction = (typeof DIRECTIONS)[number];
+
+export interface Location {
+  readonly id: LocationId;
+  readonly name: string;
+  /** What a person standing here perceives. Given to the DM, not shown raw to the player. */
+  readonly description: string;
+  readonly exits: ReadonlyMap<Direction, LocationId>;
+  /** True once the player has been here. Drives what the map is allowed to show. */
+  readonly visited: boolean;
+}
 
 export interface World {
   readonly seq: number;
@@ -56,6 +77,9 @@ export interface World {
   readonly scene: string;
   readonly protagonist: EntityId;
   readonly entities: ReadonlyMap<EntityId, Entity>;
+  readonly locations: ReadonlyMap<LocationId, Location>;
+  /** Where the player is standing. Everything the DM may reference hangs off this. */
+  readonly here: LocationId;
   readonly log: readonly WorldEvent[];
 }
 
@@ -81,6 +105,7 @@ export type WorldEvent =
   | { readonly kind: 'healed'; readonly target: EntityId; readonly amount: number }
   | { readonly kind: 'died'; readonly target: EntityId }
   | { readonly kind: 'introduced'; readonly entity: Entity }
+  | { readonly kind: 'moved'; readonly to: LocationId; readonly via: Direction }
   | { readonly kind: 'mode'; readonly to: Mode }
   /** The engine overruled the DM. Kept in the log because refusals are telemetry. */
   | { readonly kind: 'ruled'; readonly why: string; readonly detail: string };
@@ -113,6 +138,21 @@ export function apply(w: World, e: WorldEvent): World {
     }
     case 'mode':
       return { ...next, mode: e.to };
+    case 'moved': {
+      const dest = w.locations.get(e.to);
+      if (dest === undefined) return next;
+
+      const locations = new Map(w.locations);
+      locations.set(e.to, { ...dest, visited: true });
+
+      // The protagonist is an entity like any other, so moving the player means moving
+      // their record too. Leaving it behind would let a foe in the old room keep swinging.
+      const entities = new Map(w.entities);
+      const you = w.entities.get(w.protagonist);
+      if (you !== undefined) entities.set(w.protagonist, { ...you, at: e.to });
+
+      return { ...next, here: e.to, locations, entities, scene: dest.name };
+    }
     default:
       return next;
   }
@@ -135,9 +175,17 @@ export function reprisalActor(w: World): Entity | undefined {
   let best: Entity | undefined;
   for (const e of w.entities.values()) {
     if (e.id === w.protagonist || !e.hostile || e.dead || e.power <= 0) continue;
+    // Location matters. Without this, walking away from a fight leaves the foe swinging at
+    // you from the previous room.
+    if (e.at !== w.here) continue;
     if (best === undefined || e.power > best.power) best = e;
   }
   return best;
+}
+
+/** Everyone standing where the player is, excluding the player. */
+export function presentHere(w: World): readonly Entity[] {
+  return [...w.entities.values()].filter((e) => e.id !== w.protagonist && e.at === w.here);
 }
 
 export interface ViewEntity {
@@ -152,6 +200,18 @@ export interface ViewLine {
   readonly text: string;
 }
 
+export interface MapRoom {
+  readonly id: LocationId;
+  readonly name: string;
+  readonly here: boolean;
+  /**
+   * `to` is present only when the room on the far side has been visited. An unexplored
+   * exit is drawn as a stub, which tells the player there is more that way without
+   * handing them the shape of it.
+   */
+  readonly exits: readonly { readonly dir: Direction; readonly to: LocationId | null }[];
+}
+
 /** What the browser is allowed to see. Never the World, which holds DM-only lore. */
 export interface PlayerView {
   readonly seq: number;
@@ -159,6 +219,9 @@ export interface PlayerView {
   readonly scene: string;
   readonly you: { readonly name: string; readonly hp: Meter; readonly defeated: boolean };
   readonly present: readonly ViewEntity[];
+  readonly exits: readonly Direction[];
+  /** Only rooms the player has actually stood in. The unexplored stays unexplored. */
+  readonly map: readonly MapRoom[];
   readonly transcript: readonly ViewLine[];
 }
 
@@ -168,6 +231,8 @@ function nameOf(w: World, id: EntityId): string {
 
 export function project(w: World): PlayerView {
   const you = w.entities.get(w.protagonist);
+  const current = w.locations.get(w.here);
+
   return {
     seq: w.seq,
     mode: w.mode,
@@ -177,9 +242,20 @@ export function project(w: World): PlayerView {
       hp: you?.hp ?? meter(0, 0),
       defeated: you?.dead ?? false,
     },
-    present: [...w.entities.values()]
-      .filter((e) => e.id !== w.protagonist)
-      .map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
+    exits: current === undefined ? [] : [...current.exits.keys()],
+    // Only visited rooms. Shipping the whole graph would hand the player the dungeon.
+    map: [...w.locations.values()]
+      .filter((l) => l.visited)
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        here: l.id === w.here,
+        exits: [...l.exits.entries()].map(([dir, to]) => ({
+          dir,
+          to: w.locations.get(to)?.visited === true ? to : null,
+        })),
+      })),
+    present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
     transcript: w.log.flatMap((e): ViewLine[] => {
       switch (e.kind) {
         case 'began':
@@ -220,6 +296,10 @@ export function project(w: World): PlayerView {
           ];
         case 'ruled':
           return [{ kind: 'ruled', text: e.detail }];
+        case 'moved': {
+          const dest = w.locations.get(e.to);
+          return [{ kind: 'move', text: `you go ${e.via}, to ${dest?.name ?? 'somewhere else'}` }];
+        }
         default:
           return [];
       }

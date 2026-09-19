@@ -107,16 +107,11 @@ export function createApp(deps: AppDeps): App {
     if (stored === null) return null;
 
     const scenario = scenarioById(stored.scenario);
+    // Derive the blank world from begin() rather than hand-building one. A hand-built base
+    // has to be updated every time World grows a field, and silently loses whatever it
+    // forgot.
     const fresh = begin(scenario, seed(stored.seed));
-    const base: World = {
-      seq: 0,
-      seed: seed(stored.seed),
-      mode: scenario.mode,
-      scene: scenario.scene,
-      protagonist: fresh.protagonist,
-      entities: new Map(fresh.entities),
-      log: [],
-    };
+    const base: World = { ...fresh, seq: 0, log: [] };
 
     const session: Session = { id, world: stored.events.reduce(apply, base) };
     live.set(id, session);
