@@ -227,6 +227,48 @@ const MUTANTS = [
     replace: "    const session: Session = { id, world: base };",
     test: "a session survives a full server restart, proving the cache holds no authority",
   },
+  {
+    rule: "hostiles strike back at all",
+    file: "src/rules.ts",
+    find: "    if (working.mode === 'combat') {",
+    replace: "    if (false) {",
+    test: "a hostile strikes back, so the world is not a punching bag",
+  },
+  {
+    rule: "a reprisal survives the player missing",
+    file: "src/rules.ts",
+    find: "  if (!outcome.success) {",
+    replace: "  if (!outcome.success) { return { events, rulings, softFail: false };",
+    test: "the reprisal happens even when the player misses",
+  },
+  {
+    rule: "a reprisal survives a dropped intent",
+    file: "src/rules.ts",
+    find: "  if (targetId === null) {",
+    replace: "  if (targetId === null) { return { events, rulings, softFail: true };",
+    test: "the reprisal happens even when the whole intent was dropped",
+  },
+  {
+    rule: "the dead do not strike back",
+    file: "src/world.ts",
+    find: "    if (e.id === w.protagonist || !e.hostile || e.dead || e.power <= 0) continue;",
+    replace: "    if (e.id === w.protagonist || !e.hostile || e.power <= 0) continue;",
+    test: "the dead do not strike back",
+  },
+  {
+    rule: "a fallen player is not hit again",
+    file: "src/rules.ts",
+    find: "      if (you !== undefined && !you.dead) {",
+    replace: "      if (you !== undefined) {",
+    test: "a fallen player is not hit again",
+  },
+  {
+    rule: "the brief names the foe about to strike",
+    file: "src/director.ts",
+    find: "    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,",
+    replace: "    reprisalBy: null,",
+    test: "the DM is told who is about to strike, so it can narrate the blow coming",
+  },
 ];
 
 function runOne(testName) {

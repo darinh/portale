@@ -2,9 +2,13 @@
  * A fixed DM for verification and for playing without a model.
  *
  * The second entry is deliberately illegal. The scripted director repeats its last entry
- * once the script runs out, so turn one is an ordinary roll and every turn after it
- * exercises the engine overruling the DM. Without that, the engine-authority proof has
- * nothing to photograph.
+ * once the script runs out, so turn one starts a fight and every turn after it exercises
+ * the engine overruling the DM. Without that, the engine-authority proof has nothing to
+ * photograph.
+ *
+ * Turn one uses `engage` rather than `attack` so the scripted harness actually enters
+ * combat. Reprisals only happen in combat, so a script that never starts a fight cannot
+ * demonstrate the world hitting back.
  */
 
 import type { Proposal } from './director.ts';
@@ -13,7 +17,7 @@ export const DEMO_SCRIPT: Proposal[] = [
   {
     narration:
       'Marga sees your hand move and is already rising, the curved knife catching the lamplight.',
-    op: 'attack',
+    op: 'engage',
     target: 'e_marga' as Proposal['target'],
     ability: 'dexterity',
     difficulty: 12,

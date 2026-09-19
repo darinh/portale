@@ -241,6 +241,123 @@ test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(-5, 20).now, 0);
 });
 
+/** Puts the world into combat with Marga, which is the only state reprisals happen in. */
+function inCombat(s: ReturnType<typeof seed>) {
+  let w = begin(SCENARIO, s);
+  w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA })).events);
+  assert.equal(w.mode, 'combat');
+  return w;
+}
+
+test('a hostile strikes back, so the world is not a punching bag', () => {
+  const w = inCombat(seed(11));
+  const { events } = adjudicate(w, briefFor(w, 'I swing again'), proposal({ difficulty: 5 }));
+
+  const theirs = events.filter((e) => e.kind === 'rolled' && e.actor === MARGA);
+  assert.equal(theirs.length, 1, 'the living hostile must roll against the player every turn');
+});
+
+test('the reprisal happens even when the player misses', () => {
+  let found = null;
+  for (let s = 1; s < 400 && found === null; s++) {
+    const w = inCombat(seed(s));
+    const { events } = adjudicate(w, briefFor(w, 'I swing'), proposal({ difficulty: 25 }));
+    const mine = events.find((e) => e.kind === 'rolled' && e.actor === w.protagonist);
+    if (mine && mine.kind === 'rolled' && !mine.roll.success) found = events;
+  }
+  assert.ok(found, 'expected some seed to produce a failed player roll');
+  assert.ok(
+    found.some((e) => e.kind === 'rolled' && e.actor === MARGA),
+    'a foe must still act on a turn the player failed, or failure ends the fight',
+  );
+});
+
+test('the reprisal happens even when the whole intent was dropped', () => {
+  const w = inCombat(seed(17));
+  const { events, softFail } = adjudicate(
+    w,
+    briefFor(w, 'I stab the ghost'),
+    proposal({ target: entityId('e_nobody') }),
+  );
+  assert.equal(softFail, true);
+  assert.ok(
+    events.some((e) => e.kind === 'rolled' && e.actor === MARGA),
+    'a dropped player intent must not also cancel the world turn',
+  );
+});
+
+test('nobody strikes back outside combat', () => {
+  const w = begin(SCENARIO, seed(3));
+  assert.equal(w.mode, 'exploration');
+  const { events } = adjudicate(w, briefFor(w, 'I look around'), proposal({ op: 'narrate_only' }));
+  assert.equal(events.some((e) => e.kind === 'rolled' && e.actor === MARGA), false);
+});
+
+test('the dead do not strike back', () => {
+  let w = inCombat(seed(23));
+  w = apply(w, { kind: 'died', target: MARGA });
+  const { events } = adjudicate(w, briefFor(w, 'I catch my breath'), proposal({ op: 'narrate_only' }));
+  assert.equal(events.some((e) => e.kind === 'rolled' && e.actor === MARGA), false);
+});
+
+test('the player can actually be wounded, and eventually falls', () => {
+  let w = inCombat(seed(29));
+  let tookDamage = false;
+  let fell = false;
+
+  for (let turn = 0; turn < 60 && !fell; turn++) {
+    const { events } = adjudicate(w, briefFor(w, 'I fight on'), proposal({ difficulty: 25 }));
+    if (events.some((e) => e.kind === 'damaged' && e.target === w.protagonist)) tookDamage = true;
+    if (events.some((e) => e.kind === 'died' && e.target === w.protagonist)) fell = true;
+    w = fold(w, events);
+  }
+
+  assert.ok(tookDamage, 'the player must be able to take a wound');
+  assert.ok(fell, 'the player must be able to lose');
+  assert.equal(project(w).you.defeated, true, 'the view must tell the player they are down');
+});
+
+test('a fallen player is not hit again', () => {
+  // Find a world where the foe's counterblow definitely lands, or this test passes on a
+  // missed reprisal and proves nothing about the guard it is named for.
+  let landed = null;
+  for (let s = 1; s < 600 && landed === null; s++) {
+    const w = inCombat(seed(s));
+    const { events } = adjudicate(w, briefFor(w, 'I fight'), proposal({ difficulty: 25 }));
+    if (events.some((e) => e.kind === 'damaged' && e.target === w.protagonist)) landed = seed(s);
+  }
+  assert.ok(landed, 'expected some seed to land a counterblow');
+
+  let w = inCombat(landed);
+  w = apply(w, { kind: 'died', target: w.protagonist });
+  const { events } = adjudicate(w, briefFor(w, 'I lie still'), proposal({ difficulty: 25 }));
+
+  assert.equal(
+    events.some((e) => e.kind === 'damaged' && e.target === w.protagonist),
+    false,
+    'the engine must stop swinging at someone already down',
+  );
+});
+
+test('the DM is told who is about to strike, so it can narrate the blow coming', () => {
+  const peace = briefFor(begin(SCENARIO, seed(3)), 'hello');
+  assert.equal(peace.reprisalBy, null, 'nobody threatens during peace');
+
+  const war = briefFor(inCombat(seed(37)), 'I press on');
+  assert.ok(war.reprisalBy, 'the brief must name the foe about to act');
+  assert.equal(war.reprisalBy.id, MARGA);
+});
+
+test('a reprisal is seeded, so the same world produces the same counterblow', () => {
+  const a = adjudicate(inCombat(seed(41)), briefFor(inCombat(seed(41)), 'x'), proposal({ difficulty: 5 }));
+  const b = adjudicate(inCombat(seed(41)), briefFor(inCombat(seed(41)), 'x'), proposal({ difficulty: 5 }));
+
+  const faceOf = (evs: typeof a.events) =>
+    evs.filter((e) => e.kind === 'rolled' && e.actor === MARGA).map((e) => (e.kind === 'rolled' ? e.roll.face : 0));
+
+  assert.deepEqual(faceOf(a.events), faceOf(b.events));
+});
+
 test('bookkeeping tokens never reach the player, even when the DM writes them', () => {
   const w = begin(SCENARIO, seed(3));
   const { events } = adjudicate(

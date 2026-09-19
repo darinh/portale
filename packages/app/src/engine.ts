@@ -33,9 +33,9 @@ export const SCENARIOS: readonly Scenario[] = [
       'Rain hammers the shutters. You have been waiting two hours for a woman who deals in things the harbourmaster would rather not see. The barkeep will not meet your eye, and the one-eyed smuggler in the corner has been watching you since you sat down.',
     mode: 'exploration',
     cast: [
-      { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false },
-      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true },
-      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'He wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false },
+      { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false, power: 0 },
+      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true, power: 4 },
+      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'He wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false, power: 0 },
     ],
   },
 ];

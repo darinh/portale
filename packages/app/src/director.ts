@@ -17,6 +17,7 @@
  */
 
 import type { Entity, EntityId, Mode, World } from './world.ts';
+import { reprisalActor } from './world.ts';
 
 /**
  * Pre-allocated slots for NPCs the DM invents mid-scene. They exist so the target field
@@ -94,6 +95,12 @@ export interface SceneBrief {
    * merely discouraged. That is the same move the rest of the contract makes.
    */
   readonly outOfCharacter: boolean;
+  /**
+   * Who the engine has already decided will strike back this turn, or null in peace.
+   * The DM is told so it can narrate the blow coming. It is NOT asked to choose, because
+   * a world that only fights back when the narrator remembers to is not a world.
+   */
+  readonly reprisalBy: Entity | null;
 }
 
 export type Target = EntityId | MintSlot;
@@ -186,6 +193,10 @@ export function renderPrompt(brief: SceneBrief): string {
       ? ''
       : `\nAlso present but not targetable: ${brief.scenery.map((e) => e.name).join(', ')}.\n`;
   const history = brief.recent.length === 0 ? '' : `\nWhat has happened so far:\n${brief.recent.map((r) => `  ${r}`).join('\n')}\n`;
+  const reprisal =
+    brief.reprisalBy === null
+      ? ''
+      : `\n${brief.reprisalBy.name} is going to come at you this turn, whatever you do. Work that into the narration as a threat in motion. Do NOT say whether it connects; the engine decides that after you speak.\n`;
 
   if (brief.outOfCharacter) {
     return `You are the Dungeon Master of a tabletop RPG. The player has stopped playing for a moment and is speaking to YOU, not acting in the world.
@@ -215,7 +226,7 @@ The player is ${brief.protagonist.name}, ${brief.protagonist.hp.now}/${brief.pro
 You may target ONLY these, and you must use the identifier on the left, not the name:
 ${roster}
   ~new1, ~new2 = use one of these ONLY if you are introducing someone new, and fill in "introduces".
-${scenery}${history}
+${scenery}${history}${reprisal}
 The player says: "${brief.utterance}"
 
 FIRST choose "op". Choose it from what the player is TRYING TO DO, before you write any prose.
@@ -384,6 +395,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     scenery: ranked.slice(MAX_IN_REACH),
     recent: spoken.slice(-RECENT_LINES),
     utterance: stripOocPrefix(utterance),
+    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }
