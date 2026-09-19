@@ -318,6 +318,48 @@ const MUTANTS = [
     replace: "      .filter(() => true)",
     test: "the map never leaks the names of rooms not yet visited",
   },
+  {
+    rule: "the engine owns the tick size",
+    file: "src/rules.ts",
+    find: "    emit({ kind: 'ticked', clock: target.id, by: TICK_SIZE, why: proposal.op });",
+    replace: "    emit({ kind: 'ticked', clock: target.id, by: 0, why: proposal.op });",
+    test: "the DM can advance pressure that exists, one segment at a time",
+  },
+  {
+    rule: "an invented clock is refused",
+    file: "src/rules.ts",
+    find: "    if (target === undefined) {",
+    replace: "    if (false) {",
+    test: "a clock the DM invented is refused",
+  },
+  {
+    rule: "a clock pays off exactly once",
+    file: "src/rules.ts",
+    find: "    if (target.done) {",
+    replace: "    if (false) {",
+    test: "a full clock pays off exactly once and then stops being offered",
+  },
+  {
+    rule: "a finished clock leaves the enum",
+    file: "src/director.ts",
+    find: "    clocks: [...w.clocks.values()].filter((c) => !c.done),",
+    replace: "    clocks: [...w.clocks.values()],",
+    test: "a full clock pays off exactly once and then stops being offered",
+  },
+  {
+    rule: "secret clocks never reach the browser",
+    file: "src/world.ts",
+    find: "      .filter((c) => c.visibility === 'open')",
+    replace: "      .filter(() => true)",
+    test: "a secret clock is tracked and never shipped to the browser",
+  },
+  {
+    rule: "the transcript replays clock values",
+    file: "src/world.ts",
+    find: "        const at = Math.max(0, Math.min((running.get(e.clock) ?? 0) + e.by, c.segments));",
+    replace: "        const at = c.filled;",
+    test: "the transcript replays clock values rather than stamping the final one",
+  },
 ];
 
 function runOne(testName) {

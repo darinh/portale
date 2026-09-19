@@ -70,6 +70,37 @@ export interface Location {
   readonly visited: boolean;
 }
 
+export type ClockId = string & { readonly __brand: 'ClockId' };
+
+export function clockId(s: string): ClockId {
+  return s as ClockId;
+}
+
+/**
+ * A Blades in the Dark progress clock. Pressure you can see, rather than pressure the
+ * narrator keeps asserting in adjectives.
+ *
+ * Named for the OUTCOME, never the method. `harbourmaster_notices`, not
+ * `sneak_past_the_guard`, because the player should be able to see what is coming and
+ * decide whether another attempt is worth it.
+ *
+ * The engine owns the segments. The model may only propose a tick on a clock that is
+ * currently relevant, which is a closed enum, so it cannot invent pressure or quietly
+ * resolve a threat because the moment felt dramatic.
+ */
+export interface Clock {
+  readonly id: ClockId;
+  readonly name: string;
+  readonly kind: 'danger' | 'progress';
+  readonly segments: number;
+  readonly filled: number;
+  /** A secret clock is tracked but not shown, so dread can build unannounced. */
+  readonly visibility: 'open' | 'secret';
+  /** What the player is told when it fills. */
+  readonly payoff: string;
+  readonly done: boolean;
+}
+
 export interface World {
   readonly seq: number;
   readonly seed: Seed;
@@ -78,6 +109,7 @@ export interface World {
   readonly protagonist: EntityId;
   readonly entities: ReadonlyMap<EntityId, Entity>;
   readonly locations: ReadonlyMap<LocationId, Location>;
+  readonly clocks: ReadonlyMap<ClockId, Clock>;
   /** Where the player is standing. Everything the DM may reference hangs off this. */
   readonly here: LocationId;
   readonly log: readonly WorldEvent[];
@@ -106,6 +138,8 @@ export type WorldEvent =
   | { readonly kind: 'died'; readonly target: EntityId }
   | { readonly kind: 'introduced'; readonly entity: Entity }
   | { readonly kind: 'moved'; readonly to: LocationId; readonly via: Direction }
+  | { readonly kind: 'ticked'; readonly clock: ClockId; readonly by: number; readonly why: string }
+  | { readonly kind: 'filled'; readonly clock: ClockId }
   | { readonly kind: 'mode'; readonly to: Mode }
   /** The engine overruled the DM. Kept in the log because refusals are telemetry. */
   | { readonly kind: 'ruled'; readonly why: string; readonly detail: string };
@@ -135,6 +169,20 @@ export function apply(w: World, e: WorldEvent): World {
       const entities = new Map(w.entities);
       entities.set(e.target, { ...target, dead: true, hp: meter(0, target.hp.max) });
       return { ...next, entities };
+    }
+    case 'ticked': {
+      const c = w.clocks.get(e.clock);
+      if (c === undefined || c.done) return next;
+      const clocks = new Map(w.clocks);
+      clocks.set(e.clock, { ...c, filled: Math.max(0, Math.min(c.filled + e.by, c.segments)) });
+      return { ...next, clocks };
+    }
+    case 'filled': {
+      const c = w.clocks.get(e.clock);
+      if (c === undefined) return next;
+      const clocks = new Map(w.clocks);
+      clocks.set(e.clock, { ...c, filled: c.segments, done: true });
+      return { ...next, clocks };
     }
     case 'mode':
       return { ...next, mode: e.to };
@@ -212,6 +260,15 @@ export interface MapRoom {
   readonly exits: readonly { readonly dir: Direction; readonly to: LocationId | null }[];
 }
 
+export interface ViewClock {
+  readonly id: ClockId;
+  readonly name: string;
+  readonly kind: 'danger' | 'progress';
+  readonly filled: number;
+  readonly segments: number;
+  readonly done: boolean;
+}
+
 /** What the browser is allowed to see. Never the World, which holds DM-only lore. */
 export interface PlayerView {
   readonly seq: number;
@@ -222,6 +279,8 @@ export interface PlayerView {
   readonly exits: readonly Direction[];
   /** Only rooms the player has actually stood in. The unexplored stays unexplored. */
   readonly map: readonly MapRoom[];
+  /** Open clocks only. Secret ones are tracked and never shipped. */
+  readonly clocks: readonly ViewClock[];
   readonly transcript: readonly ViewLine[];
 }
 
@@ -232,6 +291,79 @@ function nameOf(w: World, id: EntityId): string {
 export function project(w: World): PlayerView {
   const you = w.entities.get(w.protagonist);
   const current = w.locations.get(w.here);
+
+  // Clock values in the transcript have to be replayed, not read off the final world.
+  // Reading w.clocks while walking history would stamp today's number onto every tick
+  // that ever happened.
+  const running = new Map<ClockId, number>();
+
+  const transcript: ViewLine[] = [];
+  for (const e of w.log) {
+    switch (e.kind) {
+      case 'began':
+        transcript.push({ kind: 'dm', text: e.narration });
+        break;
+      case 'said':
+        transcript.push({ kind: 'you', text: e.text });
+        break;
+      case 'narrated':
+        transcript.push({ kind: 'dm', text: e.text });
+        break;
+      case 'rolled': {
+        const mod = e.roll.face === e.roll.total ? '' : ` (${e.roll.total})`;
+        const crit = e.roll.critical === null ? '' : ` · critical ${e.roll.critical}`;
+        const who = e.actor === w.protagonist ? '' : `${nameOf(w, e.actor)}: `;
+        transcript.push({
+          kind: 'roll',
+          text: `${who}d${e.roll.die} → ${e.roll.face}${mod} vs DC ${e.roll.dc} · ${e.roll.success ? 'success' : 'failure'}${crit}`,
+        });
+        break;
+      }
+      case 'damaged':
+        transcript.push({
+          kind: 'mech',
+          text: e.target === w.protagonist ? `you take ${e.amount}` : `${nameOf(w, e.target)} takes ${e.amount}`,
+        });
+        break;
+      case 'healed':
+        transcript.push({ kind: 'mech', text: `${nameOf(w, e.target)} recovers ${e.amount}` });
+        break;
+      case 'died':
+        transcript.push({
+          kind: 'mech',
+          text: e.target === w.protagonist ? 'you fall' : `${nameOf(w, e.target)} falls`,
+        });
+        break;
+      case 'ruled':
+        transcript.push({ kind: 'ruled', text: e.detail });
+        break;
+      case 'moved':
+        transcript.push({
+          kind: 'move',
+          text: `you go ${e.via}, to ${w.locations.get(e.to)?.name ?? 'somewhere else'}`,
+        });
+        break;
+      case 'ticked': {
+        const c = w.clocks.get(e.clock);
+        if (c === undefined) break;
+        const at = Math.max(0, Math.min((running.get(e.clock) ?? 0) + e.by, c.segments));
+        running.set(e.clock, at);
+        if (c.visibility === 'open') {
+          transcript.push({ kind: 'clock', text: `${c.name}  ${at}/${c.segments}` });
+        }
+        break;
+      }
+      case 'filled': {
+        const c = w.clocks.get(e.clock);
+        if (c === undefined) break;
+        running.set(e.clock, c.segments);
+        transcript.push({ kind: 'clockdone', text: c.payoff });
+        break;
+      }
+      default:
+        break;
+    }
+  }
 
   return {
     seq: w.seq,
@@ -255,54 +387,12 @@ export function project(w: World): PlayerView {
           to: w.locations.get(to)?.visited === true ? to : null,
         })),
       })),
+    // Secret clocks are tracked and never shipped. Dread the player can see is tension;
+    // dread they cannot is just an ambush.
+    clocks: [...w.clocks.values()]
+      .filter((c) => c.visibility === 'open')
+      .map((c) => ({ id: c.id, name: c.name, kind: c.kind, filled: c.filled, segments: c.segments, done: c.done })),
     present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),
-    transcript: w.log.flatMap((e): ViewLine[] => {
-      switch (e.kind) {
-        case 'began':
-          return [{ kind: 'dm', text: e.narration }];
-        case 'said':
-          return [{ kind: 'you', text: e.text }];
-        case 'narrated':
-          return [{ kind: 'dm', text: e.text }];
-        case 'rolled': {
-          const mod = e.roll.face === e.roll.total ? '' : ` (${e.roll.total})`;
-          const crit = e.roll.critical === null ? '' : ` · critical ${e.roll.critical}`;
-          const who = e.actor === w.protagonist ? '' : `${nameOf(w, e.actor)}: `;
-          return [
-            {
-              kind: 'roll',
-              text: `${who}d${e.roll.die} → ${e.roll.face}${mod} vs DC ${e.roll.dc} · ${e.roll.success ? 'success' : 'failure'}${crit}`,
-            },
-          ];
-        }
-        case 'damaged':
-          return [
-            {
-              kind: 'mech',
-              text:
-                e.target === w.protagonist
-                  ? `you take ${e.amount}`
-                  : `${nameOf(w, e.target)} takes ${e.amount}`,
-            },
-          ];
-        case 'healed':
-          return [{ kind: 'mech', text: `${nameOf(w, e.target)} recovers ${e.amount}` }];
-        case 'died':
-          return [
-            {
-              kind: 'mech',
-              text: e.target === w.protagonist ? 'you fall' : `${nameOf(w, e.target)} falls`,
-            },
-          ];
-        case 'ruled':
-          return [{ kind: 'ruled', text: e.detail }];
-        case 'moved': {
-          const dest = w.locations.get(e.to);
-          return [{ kind: 'move', text: `you go ${e.via}, to ${dest?.name ?? 'somewhere else'}` }];
-        }
-        default:
-          return [];
-      }
-    }),
+    transcript,
   };
 }

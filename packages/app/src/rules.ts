@@ -18,7 +18,7 @@
 
 import { roll } from './dice.ts';
 import type { Proposal, SceneBrief } from './director.ts';
-import { apply, entityId, reprisalActor } from './world.ts';
+import { apply, clockId, entityId, presentHere, reprisalActor } from './world.ts';
 import type { Entity, EntityId, World, WorldEvent } from './world.ts';
 
 /**
@@ -57,6 +57,9 @@ const MAX_DAMAGE = 12;
 const MINTED_HP = 8;
 const MINTED_POWER = 3;
 
+/** How far one nominated tick moves a clock. The engine decides this, never the model. */
+const TICK_SIZE = 1;
+
 /** How hard it is for a hostile to land a blow on the player. */
 export const PLAYER_DEFENCE = 12;
 
@@ -88,12 +91,51 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
   }
 
   /**
+   * The DM may nominate one clock to advance. The engine decides by how much, and whether
+   * the clock is real, so the model cannot invent pressure or resolve a threat early.
+   */
+  function applyTick(): void {
+    if (proposal.tick === 'none') return;
+
+    const target = working.clocks.get(clockId(proposal.tick));
+    if (target === undefined) {
+      rule({
+        kind: 'drop',
+        why: 'no-such-clock',
+        detail: 'The DM reached for a pressure that is not in play.',
+      });
+      return;
+    }
+    // Split from the check above so each half can be mutation-tested on its own. This one
+    // is what makes a clock fire its payoff exactly once however hard the DM pushes.
+    if (target.done) {
+      rule({
+        kind: 'drop',
+        why: 'clock-already-spent',
+        detail: 'That threat has already arrived; it cannot arrive again.',
+      });
+      return;
+    }
+
+    emit({ kind: 'ticked', clock: target.id, by: TICK_SIZE, why: proposal.op });
+
+    const after = working.clocks.get(target.id);
+    if (after !== undefined && after.filled >= after.segments) {
+      emit({ kind: 'filled', clock: after.id });
+    }
+  }
+
+  /**
    * The world's turn. Every exit from this function goes through here, because a reprisal
    * that only runs on the success path is the rulings bug again: important behaviour
    * stranded behind an early return. The enemy acts whether or not the player's swing
    * landed, which is the entire point of having an enemy.
    */
   function finish(softFail: boolean): Adjudication {
+    // Clocks advance before the world's turn, so a tick that fills a danger clock lands
+    // before the foe swings rather than after the dust has settled.
+    applyTick();
+
     if (working.mode === 'combat') {
       const you = working.entities.get(working.protagonist);
       if (you !== undefined && !you.dead) {
