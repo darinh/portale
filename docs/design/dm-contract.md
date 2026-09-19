@@ -212,41 +212,76 @@ tell whether "she reaches for a knife" is plausible, and it does not try. Every 
 here is a set-membership test, a lookup, or arithmetic, which is precisely why the
 closed-set half of it could be handed to a decoder wholesale.
 
-### The scoping cap, and why it is a correctness invariant
+### The scoping cap, and what it is actually for
 
-`brief.ts` owns scope resolution and exports `MAX_IN_REACH = 6`. `inReach` is the set of
-entities the model may target, it is a strict subset of `cast`, and it is truncated hard.
-Everything in `cast` and not in `inReach` stays in the prompt as scenery. The DM may name
-it. The schema will not let the DM act on it.
+`director.ts` owns scope resolution and exports `MAX_IN_REACH = 8`. `inReach` is the set of
+entities the model may target, it is a strict subset of the room's occupants, and it is
+truncated hard. Everyone else stays in the prompt as scenery. The DM may name them. The
+schema will not let the DM act on them.
 
-Six is the default because 3 was measured perfect and 10 was already a coin flip, so the
-cap has to sit nearer 3 than 10, and 6 is the largest value that still holds a whole
-tactical scene. The protagonist, three foes, and two things worth reaching for. Linear
-interpolation between the measured points puts 6 near 75% on the weakest model we tested,
-and the production target is stronger. Re-measure on the production host before trusting
-that specific number.
+**The original justification for this cap was wrong, and was withdrawn.** An early probe
+appeared to show correctness collapsing as the enum grew. A reviewer found the conditions
+used different distractors: the tempting wrong answer was absent from the smallest
+condition, so the experiment compared distractor identity while claiming to compare length.
 
-The number is only half the mitigation. The mechanism is distractor removal, so the
-priority order in `scopeCast` carries as much weight as the cap does. The knitting old
-woman has to be the entity that falls off the end of the list, and the smuggler the player
-just named has to be the one that never does. That ordering is written out as pseudocode in
-`brief.ts` and is unit-testable with no model at all.
+Re-measured properly, with the attractor present in every condition and 30 trials each, on
+`qwen2.5:3b-instruct`:
+
+| enum size | target inside enum | target correct |
+| --- | --- | --- |
+| 3 | 30/30 | 15/30 |
+| 6 | 30/30 | 11/30 |
+| 8 | 30/30 | 13/30 |
+| 10 | 30/30 | 8/30 |
+| 25 | 30/30 | 15/30 |
+
+There is no length effect. Size 3 and size 25 score identically. What there is, in every
+condition, is one distractor absorbing most of the errors: at size 10, seventeen of the
+twenty-two wrong picks were the same knitting old woman. That is not an artefact of where
+she sat in the list, which was checked: across the 30 trials she and the correct answer
+occupy statistically indistinguishable mean positions.
+
+Removing her is decisive, and then it is not:
+
+| distractor set | enum 8 | enum 25 |
+| --- | --- | --- |
+| attractor present | 13/30 | 15/30 |
+| attractor removed | **27/30** | 13/30 |
+
+At eight, deleting one entity doubles correctness. At twenty-five, deleting it changes
+nothing, because a new attractor simply takes over: ten of the seventeen remaining errors
+became a hooded scribe. The model is not confused by a long list. It reaches for the most
+narratively salient person in the list, and a longer list is more likely to contain someone
+more evocative than whoever the player actually named.
+
+So the cap is worth having, for a reason almost unrelated to the one first written down.
+It does not reduce cognitive load. It reduces the chance that a strong attractor is present
+at all, and it forces the priority ordering to decide who survives the cut. The ordering is
+the mitigation; the cap is what gives the ordering teeth.
+
+That ordering is `mentions()` in `director.ts`, and it puts whoever the player actually
+named ahead of everyone, including a hostile. Writing this section is what exposed that the
+code did not do it: the ranking sorted on hostility and nothing else, so the sentence "the
+person the player named must never fall off the end" was an aspiration rather than a
+description. It is now a rule, with a test that crowds the room with hostile fillers and
+requires the named barkeep to survive the cut.
+
+Eight is not a measured optimum. It is the largest list that scored well once the attractor
+was excluded, and it is a hedge on a 3B model running on CPU, which is weaker than any
+intended production host. Re-measure before trusting the specific number. What should
+survive re-measurement is the mechanism, not the integer.
 
 Mint slots share the target enum with entities in reach, so the enum the decoder actually
-sees is `MAX_IN_REACH + MINT_SLOTS` long. `MINT_SLOTS` is therefore 2 rather than 4, which
-holds the total at 8. At four slots the total would have been 10, which is exactly the
-condition measured at 4/8 correct. A DM that needs three new things in one breath is
-writing a bad beat, and introducing across two turns costs the fiction nothing.
-
-`MAX_CITABLE_FACTS = 12` caps the other live enum. It is extrapolation, not measurement,
-and it is labelled as such in the code. A wrong citation is a milder failure than a wrong
-stabbing.
+sees is `MAX_IN_REACH + MINT_SLOTS` long. `MINT_SLOTS` is 2 rather than 4 for the same
+reason the cap exists: every extra slot is another thing that can be reached for instead of
+the right one. A DM that needs three new characters in one breath is writing a bad beat, and
+introducing across two turns costs the fiction nothing.
 
 ### The two layers, and the third channel
 
 | | Layer 1, syntax and shape | Layer 2, semantic and rules legality |
 | --- | --- | --- |
-| Owned by | the runtime, through `format: <schema>` | `adjudicator.ts`, and only that module |
+| Owned by | the runtime, through `format: <schema>` | `rules.ts`, and only that module |
 | Measured | 8/8 engine-valid, against 0/8 for JSON mode | not measurable by a decoder at all |
 | Catches | wrong field names, out-of-enum values, out-of-reach targets, off-mode ops, stale fact ids | difficulty 30 for a rusted lock, spending 50 while holding 12, two payments jointly bankrupt, a band contradicting last turn |
 | Our code | builds the schema, never re-checks it | the whole rules engine |

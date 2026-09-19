@@ -507,6 +507,38 @@ export function wanderingDirector(): Director {
   };
 }
 
+/**
+ * Words in an entity's name that are worth matching against what the player typed.
+ *
+ * Short words and articles match everything and would rank the whole room as mentioned,
+ * which is the same as ranking nobody.
+ */
+const NAME_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'at', 'by', 'to']);
+
+function nameWords(name: string): readonly string[] {
+  return name
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((wd) => wd.length >= 3 && !NAME_STOPWORDS.has(wd));
+}
+
+/**
+ * Did the player name this entity in the sentence they just typed?
+ *
+ * This is the highest-leverage half of the scoping design. Measurement showed the model
+ * does not lose to list LENGTH, it loses to whichever person in the list is most
+ * narratively salient: at enum size 8 with one memorable bystander removed, target
+ * correctness went from 13/30 to 27/30, and at size 25 a different bystander simply took
+ * over. Length only matters because a longer list is likelier to hold a strong attractor.
+ *
+ * So the entity the player just named is the one that must never fall off the end of the
+ * list, whatever else does.
+ */
+export function mentions(utterance: string, e: Entity): boolean {
+  const said = utterance.toLowerCase();
+  return nameWords(e.name).some((wd) => said.includes(wd));
+}
+
 export function briefFor(w: World, utterance: string): SceneBrief {
   const protagonist = w.entities.get(w.protagonist);
   if (protagonist === undefined) throw new Error('world has no protagonist');
@@ -515,8 +547,19 @@ export function briefFor(w: World, utterance: string): SceneBrief {
 
   // Scoped to this room. Somebody two rooms away is not someone the DM may act upon, and
   // keeping them out of the enum makes that structural rather than a rule to remember.
+  //
+  // Ordering decides who survives MAX_IN_REACH, and the measurement says ordering is the
+  // mitigation rather than the cap. Whoever the player just named comes first, because
+  // they are the one answer that must always be reachable; hostiles next, because a fight
+  // is the case where a wrong target costs the most; the dead last.
   const others = presentHere(w);
-  const ranked = [...others].sort((a, b) => Number(b.hostile) - Number(a.hostile) || Number(a.dead) - Number(b.dead));
+  const said = stripOocPrefix(utterance);
+  const ranked = [...others].sort(
+    (a, b) =>
+      Number(mentions(said, b)) - Number(mentions(said, a)) ||
+      Number(b.hostile) - Number(a.hostile) ||
+      Number(a.dead) - Number(b.dead),
+  );
 
   // Filter first, then take the last few. Slicing raw events first would have counted
   // rolls and damage against the budget, so a single busy turn could evict every earlier
