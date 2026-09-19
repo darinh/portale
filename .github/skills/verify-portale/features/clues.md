@@ -12,6 +12,7 @@ collects what has actually been found; everything else is invisible until it is 
 - `clue-once` a clue already found cannot be revealed again.
 - `clue-gates-vow` while a vow has clues outstanding, only a discovery advances it.
 - `clue-fallback` once every clue is found, the vow advances on action again.
+- `clue-no-search-in-combat` discoveries are undecodable while a fight is on.
 - `clue-generated` a generated delve places three clues in three distinct rooms.
 
 ## How to get to it (user POV)
@@ -40,7 +41,15 @@ Preconditions:
 - **Evidence from elsewhere is refused.** Take another turn and
   `assert "document.body.innerText.includes('not something you could have found here')"`,
   then `assert "!document.body.innerText.includes('signed for by a name')"` to prove the
-  refused clue's text did not leak while being refused.
+  refused clue's text did not leak while being refused. Note this only reports
+  `clue-elsewhere` OUT of combat; see the mid-fight recipe below.
+- **Nothing is findable during a fight.** Drive `I grab for the ledger and square up to her`,
+  which both starts the fight and carries a legal discovery, then
+  `assert "document.body.dataset.mode === 'combat'"` and
+  `assert "document.querySelectorAll('.lead').length === 1"` — the turn a fight STARTS keeps
+  its discovery, because the DM was briefed out of combat. Then drive
+  `I rummage behind the bar while she swings` and
+  `assert "document.body.innerText.includes('no time to go looking')"`.
 - **The vow does not move for a fight.** The scripted DM claims no milestone, so assert the
   vow boxes stay empty across several combat turns. The engine-level proof of the gate is
   `while clues remain unfound a vow advances only on discovery` in the unit suite.
@@ -66,3 +75,10 @@ Preconditions:
 - Clue ids are stable strings per scenario (`c_ledger_page`, `c_crate_mark`,
   `c_boot_prints`, `c_manifest` in the lantern; `c_lead_1..3` in a delve), so a `data-testid`
   of `lead-<id>` is a safe handle.
+- The refusal reasons are ordered, and the order is deliberate. `no-searching-mid-fight`
+  fires before the clue is resolved at all, so in combat you get "no time to go looking"
+  even if the clue named was also in another room. A recipe expecting `clue-elsewhere`
+  during a fight will fail; that is the rule working, not drift.
+- The mid-fight rule reads the mode at the START of the turn, which is the mode the DM was
+  briefed on. So a turn that both begins a fight and reveals something keeps the discovery.
+  That asymmetry is intentional and has its own test and mutant; do not "fix" it.
