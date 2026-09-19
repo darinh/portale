@@ -16,8 +16,8 @@
  * be named, because it is not in the enum.
  */
 
-import type { Entity, EntityId, Mode, World } from './world.ts';
-import { reprisalActor } from './world.ts';
+import type { Direction, Entity, EntityId, Location, Mode, World } from './world.ts';
+import { presentHere, reprisalActor } from './world.ts';
 
 /**
  * Pre-allocated slots for NPCs the DM invents mid-scene. They exist so the target field
@@ -101,14 +101,18 @@ export interface SceneBrief {
    * a world that only fights back when the narrator remembers to is not a world.
    */
   readonly reprisalBy: Entity | null;
+  /** Where the player is standing, and the only ways out of it. */
+  readonly place: Location;
+  readonly exits: readonly Direction[];
 }
 
 export type Target = EntityId | MintSlot;
 
 export interface Proposal {
   readonly narration: string;
-  readonly op: 'attack' | 'engage' | 'skill_check' | 'talk' | 'introduce' | 'narrate_only';
+  readonly op: 'attack' | 'engage' | 'skill_check' | 'talk' | 'introduce' | 'move' | 'narrate_only';
   readonly target: Target;
+  readonly direction: Direction;
   readonly ability: 'strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma';
   readonly difficulty: number;
   readonly damage: number;
@@ -135,9 +139,17 @@ export class DirectorContractBreach extends Error {
  * `engage` is the only way into combat, and it exists because `attack` is deliberately
  * undecodable during exploration. Without it the game could never leave peace, which is
  * exactly what happened before this op was added.
+ *
+ * `move` is absent from combat on purpose. Walking away mid-fight is a real thing a player
+ * might want, but it is the player's call to make in words, not the DM's to narrate for
+ * them.
+ *
+ * There is deliberately no `introduce` op. Minting is keyed on the TARGET being a slot, so
+ * a separate op bought nothing and the model reached for it constantly, then left
+ * `introduces` null and earned a refusal. Removing the choice removed the failure.
  */
 const OPS_BY_MODE: Record<Mode, readonly Proposal['op'][]> = {
-  exploration: ['skill_check', 'talk', 'introduce', 'engage', 'narrate_only'],
+  exploration: ['skill_check', 'talk', 'move', 'engage', 'narrate_only'],
   combat: ['attack', 'skill_check', 'narrate_only'],
 };
 
@@ -155,14 +167,20 @@ const OPS_BY_MODE: Record<Mode, readonly Proposal['op'][]> = {
  */
 export function buildSchema(brief: SceneBrief): object {
   const targets = [...brief.inReach.map((e) => e.id as string), ...MINT_SLOTS];
+  // JSON Schema forbids an empty enum, and a room with no exits is legal, so fall back to
+  // a single dead value. `move` is withheld in that case anyway, so it is never chosen.
+  const dirs = brief.exits.length > 0 ? brief.exits : (['out'] as readonly Direction[]);
+  const ops = OPS_BY_MODE[brief.mode].filter((o) => o !== 'move' || brief.exits.length > 0);
+
   return {
     type: 'object',
     properties: {
       op: {
         type: 'string',
-        enum: brief.outOfCharacter ? (['narrate_only'] as const) : OPS_BY_MODE[brief.mode],
+        enum: brief.outOfCharacter ? (['narrate_only'] as const) : ops,
       },
       target: { type: 'string', enum: targets },
+      direction: { type: 'string', enum: dirs },
       ability: {
         type: 'string',
         enum: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'],
@@ -180,7 +198,7 @@ export function buildSchema(brief: SceneBrief): object {
       },
       narration: { type: 'string' },
     },
-    required: ['op', 'target', 'ability', 'difficulty', 'damage', 'introduces', 'narration'],
+    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'narration'],
   };
 }
 
@@ -201,7 +219,7 @@ export function renderPrompt(brief: SceneBrief): string {
   if (brief.outOfCharacter) {
     return `You are the Dungeon Master of a tabletop RPG. The player has stopped playing for a moment and is speaking to YOU, not acting in the world.
 
-Scene: ${brief.scene}
+Where the player is standing: ${brief.place.name}
 ${history}
 The player says to you, out of character: "${brief.utterance}"
 
@@ -218,14 +236,18 @@ they want to do next.`;
 
   return `You are the Dungeon Master of a tabletop RPG. You decide what the world does. You never decide what the player does.
 
-Scene: ${brief.scene}
+Where the player is standing: ${brief.place.name}
+${brief.place.description}
+${brief.exits.length === 0 ? 'There is no way out of here.' : `Ways out: ${brief.exits.join(', ')}.`}
 Mode: ${brief.mode}
 
 The player is ${brief.protagonist.name}, ${brief.protagonist.hp.now}/${brief.protagonist.hp.max} hp.
 
 You may target ONLY these, and you must use the identifier on the left, not the name:
 ${roster}
-  ~new1, ~new2 = use one of these ONLY if you are introducing someone new, and fill in "introduces".
+  ~new1, ~new2 = someone NEW walking into the scene. Use one of these as "target" with
+                 whatever op fits, and fill in "introduces" with their name and who they
+                 are. Leave "introduces" null for everything else.
 ${scenery}${history}${reprisal}
 The player says: "${brief.utterance}"
 
@@ -244,7 +266,8 @@ FIRST choose "op". Choose it from what the player is TRYING TO DO, before you wr
                 Sneaking, lying convincingly, picking a lock, forcing a door, climbing.
   talk          the player speaks to someone in the room and the outcome turns on what is
                 said.
-  introduce     someone new should enter the scene. Fill in "introduces".
+  move          the player goes somewhere else. Set "direction" to one of the ways out
+                listed above. Only these exist. You cannot invent a door.
   narrate_only  no stakes, no audience, no consequence. ALSO use this whenever the player
                 is speaking to YOU rather than acting in the world: asking what you meant,
                 saying a message was cut off, complaining that you lost the thread, or
@@ -370,8 +393,12 @@ export function scriptedDirector(script: readonly Proposal[]): Director {
 export function briefFor(w: World, utterance: string): SceneBrief {
   const protagonist = w.entities.get(w.protagonist);
   if (protagonist === undefined) throw new Error('world has no protagonist');
+  const place = w.locations.get(w.here);
+  if (place === undefined) throw new Error(`world has no location ${w.here}`);
 
-  const others = [...w.entities.values()].filter((e) => e.id !== w.protagonist);
+  // Scoped to this room. Somebody two rooms away is not someone the DM may act upon, and
+  // keeping them out of the enum makes that structural rather than a rule to remember.
+  const others = presentHere(w);
   const ranked = [...others].sort((a, b) => Number(b.hostile) - Number(a.hostile) || Number(a.dead) - Number(b.dead));
 
   // Filter first, then take the last few. Slicing raw events first would have counted
@@ -396,6 +423,8 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     recent: spoken.slice(-RECENT_LINES),
     utterance: stripOocPrefix(utterance),
     reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,
+    place,
+    exits: [...place.exits.keys()],
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }

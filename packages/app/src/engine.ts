@@ -10,8 +10,8 @@ import type { Seed } from './dice.ts';
 import { DirectorContractBreach, briefFor } from './director.ts';
 import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
-import { apply, entityId, meter, project } from './world.ts';
-import type { Entity, EntityId, PlayerView, World } from './world.ts';
+import { apply, entityId, locationId, meter, project } from './world.ts';
+import type { Direction, Entity, EntityId, Location, LocationId, PlayerView, World } from './world.ts';
 
 export interface Scenario {
   readonly id: string;
@@ -19,23 +19,76 @@ export interface Scenario {
   readonly scene: string;
   readonly opening: string;
   readonly cast: readonly Omit<Entity, 'dead'>[];
+  readonly rooms: readonly LocationDef[];
+  readonly start: LocationId;
   readonly mode: World['mode'];
 }
 
+/** A room as an author writes it. Exits are plain pairs so a generator can emit them. */
+export interface LocationDef {
+  readonly id: LocationId;
+  readonly name: string;
+  readonly description: string;
+  readonly exits: readonly (readonly [Direction, LocationId])[];
+}
+
 const PROTAGONIST = entityId('e_you');
+
+const COMMON = locationId('l_common');
+const CELLAR = locationId('l_cellar');
+const YARD = locationId('l_yard');
+const DOCK = locationId('l_dock');
 
 export const SCENARIOS: readonly Scenario[] = [
   {
     id: 'lantern',
     title: 'The Drowned Lantern',
-    scene: 'The common room of the Drowned Lantern, a smugglers\' tavern on the harbour.',
+    scene: 'The common room of the Drowned Lantern',
     opening:
       'Rain hammers the shutters. You have been waiting two hours for a woman who deals in things the harbourmaster would rather not see. The barkeep will not meet your eye, and the one-eyed smuggler in the corner has been watching you since you sat down.',
     mode: 'exploration',
+    start: COMMON,
+    rooms: [
+      {
+        id: COMMON,
+        name: 'The common room of the Drowned Lantern',
+        description:
+          "A smugglers' tavern on the harbour. Low beams, wet coats steaming by the fire, and a bar that has seen a great deal it will not discuss. Stairs go down to the cellar, and a door lets out into the yard.",
+        exits: [
+          ['down', CELLAR],
+          ['out', YARD],
+        ],
+      },
+      {
+        id: CELLAR,
+        name: 'The cellar',
+        description:
+          'Barrels, most of them honest. Salt water seeps between the flagstones and something has been dragged across the floor recently. The only way out is back up.',
+        exits: [['up', COMMON]],
+      },
+      {
+        id: YARD,
+        name: 'The rain-struck yard',
+        description:
+          'Mud, broken crates, and the smell of fish and tar. The tavern door is behind you and the harbour road runs north toward the docks.',
+        exits: [
+          ['in', COMMON],
+          ['north', DOCK],
+        ],
+      },
+      {
+        id: DOCK,
+        name: 'The harbour dock',
+        description:
+          'Black water slapping at the pilings. A customs lamp burns at the end of the pier, and the harbourmaster keeps a office nobody visits twice. The yard is back to the south.',
+        exits: [['south', YARD]],
+      },
+    ],
     cast: [
-      { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false, power: 0 },
-      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true, power: 4 },
-      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'He wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false, power: 0 },
+      { id: PROTAGONIST, name: 'You', lore: 'A traveller with more questions than coin.', hp: meter(20, 20), hostile: false, power: 0, at: COMMON },
+      { id: entityId('e_marga'), name: 'Marga', lore: 'A one-eyed smuggler. She owes the harbourmaster a debt, and she refers to herself as she.', hp: meter(12, 12), hostile: true, power: 4, at: COMMON },
+      { id: entityId('e_olen'), name: 'Olen the barkeep', lore: 'He wipes the same glass over and over. Knows everything, says nothing.', hp: meter(10, 10), hostile: false, power: 0, at: COMMON },
+      { id: entityId('e_customs'), name: 'A customs officer', lore: 'Bored, damp, and very interested in anyone who walks the pier after dark.', hp: meter(14, 14), hostile: false, power: 3, at: DOCK },
     ],
   },
 ];
@@ -49,6 +102,17 @@ export function begin(scenario: Scenario, s: Seed): World {
   const entities = new Map<EntityId, Entity>();
   for (const c of scenario.cast) entities.set(c.id, { ...c, dead: false });
 
+  const locations = new Map<LocationId, Location>();
+  for (const r of scenario.rooms) {
+    locations.set(r.id, {
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      exits: new Map(r.exits),
+      visited: r.id === scenario.start,
+    });
+  }
+
   const empty: World = {
     seq: 0,
     seed: s,
@@ -56,6 +120,8 @@ export function begin(scenario: Scenario, s: Seed): World {
     scene: scenario.scene,
     protagonist: PROTAGONIST,
     entities,
+    locations,
+    here: scenario.start,
     log: [],
   };
 

@@ -23,6 +23,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     narration: 'The lamplight gutters.',
     op: 'attack',
     target: MARGA,
+    direction: 'out',
     ability: 'dexterity',
     difficulty: 12,
     damage: 4,
@@ -239,6 +240,109 @@ test('the player utterance survives a reload, because it is in the log', async (
 test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(50, 20).now, 20);
   assert.equal(meter(-5, 20).now, 0);
+});
+
+test('moving takes the player somewhere real and remembers they went', () => {
+  const w = begin(SCENARIO, seed(3));
+  const start = w.here;
+  const { events } = adjudicate(w, briefFor(w, 'I head down to the cellar'), proposal({ op: 'move', direction: 'down' }));
+
+  const after = fold(w, events);
+  assert.notEqual(after.here, start, 'the player must actually be somewhere else');
+  assert.equal(after.locations.get(after.here)?.visited, true, 'arriving must mark the room visited');
+  assert.equal(after.entities.get(after.protagonist)?.at, after.here, 'the player record must move too');
+});
+
+test('the DM can only propose exits that exist', () => {
+  const w = begin(SCENARIO, seed(3));
+  const schema = buildSchema(briefFor(w, 'I look about')) as {
+    properties: { direction: { enum: string[] }; op: { enum: string[] } };
+  };
+  const real = [...w.locations.get(w.here)!.exits.keys()];
+
+  assert.deepEqual([...schema.properties.direction.enum].sort(), [...real].sort());
+  assert.ok(!schema.properties.direction.enum.includes('north'), 'the common room has no north exit');
+  assert.ok(schema.properties.op.enum.includes('move'));
+});
+
+test('a direction that is not an exit is refused rather than inventing a door', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events, softFail } = adjudicate(
+    w,
+    briefFor(w, 'I go north'),
+    proposal({ op: 'move', direction: 'north' }),
+  );
+  assert.equal(softFail, true);
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'no-such-exit'));
+  assert.equal(events.some((e) => e.kind === 'moved'), false);
+});
+
+test('you cannot stroll out of a fight', () => {
+  const w = inCombat(seed(53));
+  const { events, softFail } = adjudicate(
+    w,
+    briefFor(w, 'I walk out'),
+    proposal({ op: 'move', direction: 'out' }),
+  );
+  assert.equal(softFail, true);
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'pinned-in-combat'));
+});
+
+test('someone in another room is not in reach, and cannot be named', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I look about');
+  const names = brief.inReach.map((e) => e.name);
+
+  assert.ok(names.includes('Marga'), 'Marga shares the common room');
+  assert.ok(!names.includes('A customs officer'), 'the officer is out on the dock');
+
+  const schema = buildSchema(brief) as { properties: { target: { enum: string[] } } };
+  assert.ok(!schema.properties.target.enum.includes('e_customs'), 'and so cannot be targeted');
+});
+
+test('a foe left behind in another room stops swinging at you', () => {
+  let w = inCombat(seed(59));
+  // Force the player out without the combat guard, the way a scripted escape would.
+  w = apply(w, { kind: 'mode', to: 'exploration' });
+  w = fold(w, adjudicate(w, briefFor(w, 'I slip out'), proposal({ op: 'move', direction: 'out' })).events);
+  w = apply(w, { kind: 'mode', to: 'combat' });
+
+  const { events } = adjudicate(w, briefFor(w, 'I catch my breath'), proposal({ op: 'narrate_only' }));
+  assert.equal(
+    events.some((e) => e.kind === 'rolled' && e.actor === MARGA),
+    false,
+    'Marga is in the tavern and the player is in the yard',
+  );
+});
+
+test('the map shows only rooms the player has stood in', () => {
+  const w = begin(SCENARIO, seed(3));
+  const before = project(w).map;
+  assert.equal(before.length, 1, 'only the starting room is known');
+  assert.equal(before[0]!.here, true);
+
+  const after = project(
+    fold(w, adjudicate(w, briefFor(w, 'down'), proposal({ op: 'move', direction: 'down' })).events),
+  ).map;
+  assert.equal(after.length, 2, 'the cellar joins the map once entered');
+  assert.equal(after.filter((r) => r.here).length, 1, 'exactly one room is current');
+});
+
+test('the map never leaks the names of rooms not yet visited', () => {
+  const view = project(begin(SCENARIO, seed(3)));
+  const shipped = JSON.stringify(view);
+  assert.ok(!shipped.includes('harbour dock'), 'an unvisited room must not appear');
+  assert.ok(!shipped.includes('cellar'), 'nor its name');
+});
+
+test('movement survives a replay of the log', async () => {
+  const s = { id: 't', world: begin(SCENARIO, seed(71)) };
+  const dm = scriptedDirector([proposal({ op: 'move', direction: 'down' })]);
+  await takeTurn(s, 'I go down', dm);
+
+  const base = begin(SCENARIO, seed(71));
+  const replayed = fold({ ...base, seq: 0, log: [] }, s.world.log);
+  assert.equal(replayed.here, s.world.here, 'a rebuilt world must stand in the same room');
 });
 
 /** Puts the world into combat with Marga, which is the only state reprisals happen in. */

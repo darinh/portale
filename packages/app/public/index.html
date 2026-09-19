@@ -60,6 +60,23 @@
         padding: 3px 10px; color: var(--dim);
       }
       .npc.dead { text-decoration: line-through; opacity: 0.45; }
+      #exits { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 10px; align-items: center; }
+      .exit {
+        font-size: 12px; background: none; border: 1px solid var(--gold); color: var(--gold);
+        border-radius: 99px; padding: 5px 12px; cursor: pointer; font-family: inherit;
+        letter-spacing: 0.04em; min-height: 30px;
+      }
+      .exit:disabled { opacity: 0.35; cursor: default; }
+      #exits .label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; }
+      #mapwrap { padding: 0 16px 10px; }
+      #mapwrap[hidden] { display: none; }
+      #map { width: 100%; height: 108px; display: block; }
+      .room { fill: var(--panel); stroke: var(--edge); stroke-width: 1.5; }
+      .room.here { fill: #2b2340; stroke: var(--gold); stroke-width: 2; }
+      .roomlabel { fill: var(--dim); font-size: 7px; font-family: ui-sans-serif, system-ui, sans-serif; }
+      .room.here + .roomlabel { fill: var(--gold); }
+      .link { stroke: var(--edge); stroke-width: 1.5; }
+      .stub { stroke: var(--edge); stroke-width: 1.5; stroke-dasharray: 2 2; opacity: 0.7; }
       form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--edge); background: var(--panel); }
       input {
         flex: 1; background: var(--bg); border: 1px solid var(--edge); border-radius: 10px;
@@ -83,7 +100,11 @@
     </header>
 
     <div id="log" data-testid="log" aria-live="polite"></div>
+    <div id="mapwrap" data-testid="mapwrap" hidden>
+      <svg id="map" data-testid="map" role="img" aria-label="Map of where you have been"></svg>
+    </div>
     <div id="cast" data-testid="cast"></div>
+    <div id="exits" data-testid="exits"></div>
     <div id="thinking" data-testid="thinking" hidden>The DM considers…</div>
 
     <form id="act" data-testid="act">
@@ -101,12 +122,91 @@
       const $ = (s) => document.querySelector(s);
       const log = $('#log');
       const cast = $('#cast');
+      const exits = $('#exits');
+      const mapwrap = $('#mapwrap');
+      const mapEl = $('#map');
       const thinking = $('#thinking');
       const form = $('#act');
       const input = $('#utterance');
       const send = form.querySelector('button');
 
       let sessionId = localStorage.getItem('portale.session');
+
+      /** Grid offsets per direction. Vertical and threshold moves get a diagonal nudge. */
+      const STEP = {
+        north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0],
+        up: [1, -1], down: [-1, 1], in: [1, 1], out: [-1, -1],
+      };
+
+      function layout(rooms) {
+        const byId = new Map(rooms.map((r) => [r.id, r]));
+        const at = new Map();
+        const start = rooms.find((r) => r.here) ?? rooms[0];
+        if (!start) return at;
+
+        // Breadth first from where the player stands, following only known exits, so the
+        // room they are in anchors the drawing. Collisions nudge sideways; this is a
+        // sketch of the space, not a survey.
+        const queue = [start.id];
+        at.set(start.id, [0, 0]);
+        while (queue.length > 0) {
+          const id = queue.shift();
+          const [x, y] = at.get(id);
+          for (const ex of byId.get(id)?.exits ?? []) {
+            if (ex.to === null || at.has(ex.to) || !byId.has(ex.to)) continue;
+            const [dx, dy] = STEP[ex.dir] ?? [1, 0];
+            let nx = x + dx;
+            let ny = y + dy;
+            while ([...at.values()].some(([ax, ay]) => ax === nx && ay === ny)) nx += 1;
+            at.set(ex.to, [nx, ny]);
+            queue.push(ex.to);
+          }
+        }
+        for (const r of rooms) if (!at.has(r.id)) at.set(r.id, [at.size, 0]);
+        return at;
+      }
+
+      function renderMap(rooms) {
+        mapwrap.hidden = rooms.length < 2;
+        if (rooms.length < 2) return;
+
+        const at = layout(rooms);
+        const xs = [...at.values()].map(([x]) => x);
+        const ys = [...at.values()].map(([, y]) => y);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+        const cw = 54, ch = 26, gap = 20;
+        const w = (maxX - minX + 1) * (cw + gap) + gap;
+        const h = (maxY - minY + 1) * (ch + gap) + gap;
+        const px = (x) => (x - minX) * (cw + gap) + gap;
+        const py = (y) => (y - minY) * (ch + gap) + gap;
+
+        const parts = [];
+        for (const room of rooms) {
+          const [x, y] = at.get(room.id);
+          const cx = px(x) + cw / 2, cy = py(y) + ch / 2;
+          for (const ex of room.exits) {
+            const [dx, dy] = STEP[ex.dir] ?? [1, 0];
+            if (ex.to !== null) {
+              parts.push(`<line class="link" x1="${cx}" y1="${cy}" x2="${cx + dx * (cw + gap) / 2}" y2="${cy + dy * (ch + gap) / 2}" />`);
+            } else {
+              parts.push(`<line class="stub" x1="${cx}" y1="${cy}" x2="${cx + dx * 13}" y2="${cy + dy * 13}" />`);
+            }
+          }
+        }
+        for (const room of rooms) {
+          const [x, y] = at.get(room.id);
+          const short = room.name.replace(/^The\s+/i, '').slice(0, 11);
+          parts.push(
+            `<rect class="room${room.here ? ' here' : ''}" x="${px(x)}" y="${py(y)}" width="${cw}" height="${ch}" rx="4" />` +
+            `<text class="roomlabel" x="${px(x) + cw / 2}" y="${py(y) + ch / 2 + 2.5}" text-anchor="middle">${short}</text>`,
+          );
+        }
+
+        mapEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        mapEl.innerHTML = parts.join('');
+      }
 
       function line(kind, text) {
         const el = document.createElement('div');
@@ -123,8 +223,9 @@
 
         $('#hp').textContent = `${view.you.hp.now}/${view.you.hp.max}`;
         $('#hp').classList.toggle('hurt', view.you.hp.now <= view.you.hp.max / 2);
-        $('#mode').textContent = view.mode;
+        $('#mode').textContent = view.you.defeated ? 'defeated' : view.mode;
         document.body.dataset.seq = String(view.seq);
+        document.body.dataset.mode = view.mode;
 
         cast.replaceChildren();
         for (const n of view.present) {
@@ -134,6 +235,26 @@
           el.textContent = `${n.name} ${n.hp.now}/${n.hp.max}`;
           cast.append(el);
         }
+
+        exits.replaceChildren();
+        if (view.exits.length > 0) {
+          const label = document.createElement('span');
+          label.className = 'label';
+          label.textContent = 'ways out';
+          exits.append(label);
+          for (const dir of view.exits) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'exit';
+            b.dataset.testid = `exit-${dir}`;
+            b.textContent = dir;
+            b.disabled = view.mode === 'combat' || view.you.defeated;
+            b.addEventListener('click', () => act(`I go ${dir}.`));
+            exits.append(b);
+          }
+        }
+
+        renderMap(view.map);
       }
 
       async function api(path, init) {
@@ -161,9 +282,7 @@
         render(view);
       }
 
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const utterance = input.value.trim();
+      async function act(utterance) {
         if (!utterance || send.disabled) return;
 
         line('you', utterance);
@@ -187,6 +306,11 @@
           delete document.body.dataset.busy;
           input.focus();
         }
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        void act(input.value.trim());
       });
 
       boot().catch((e) => line('ruled', `Could not start a session. ${e.message}`));

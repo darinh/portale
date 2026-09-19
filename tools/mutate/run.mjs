@@ -41,8 +41,8 @@ const MUTANTS = [
   {
     rule: "attack is undecodable outside combat",
     file: "src/director.ts",
-    find: "  exploration: ['skill_check', 'talk', 'introduce', 'engage', 'narrate_only'],",
-    replace: "  exploration: ['attack', 'skill_check', 'talk', 'introduce', 'engage', 'narrate_only'],",
+    find: "  exploration: ['skill_check', 'talk', 'move', 'engage', 'narrate_only'],",
+    replace: "  exploration: ['attack', 'skill_check', 'talk', 'move', 'engage', 'narrate_only'],",
     test: "exploration mode does not offer the attack op at all",
   },
   {
@@ -62,8 +62,8 @@ const MUTANTS = [
   {
     rule: "player-facing projection excludes DM-only lore",
     file: "src/world.ts",
-    find: "    present: [...w.entities.values()]",
-    replace: "    lore: [...w.entities.values()].map((e) => e.lore),\n    present: [...w.entities.values()]",
+    find: "    present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),",
+    replace: "    lore: [...w.entities.values()].map((e) => e.lore),\n    present: presentHere(w).map((e) => ({ id: e.id, name: e.name, hp: e.hp, dead: e.dead })),",
     test: "the player view never carries DM-only lore",
   },
   {
@@ -90,8 +90,8 @@ const MUTANTS = [
   {
     rule: "engage is offered during exploration",
     file: "src/director.ts",
-    find: "  exploration: ['skill_check', 'talk', 'introduce', 'engage', 'narrate_only'],",
-    replace: "  exploration: ['skill_check', 'talk', 'introduce', 'narrate_only'],",
+    find: "  exploration: ['skill_check', 'talk', 'move', 'engage', 'narrate_only'],",
+    replace: "  exploration: ['skill_check', 'talk', 'move', 'narrate_only'],",
     test: "the schema offers a way into combat during exploration",
   },
   {
@@ -139,8 +139,8 @@ const MUTANTS = [
   {
     rule: "an out-of-character message collapses the op enum",
     file: "src/director.ts",
-    find: "        enum: brief.outOfCharacter ? (['narrate_only'] as const) : OPS_BY_MODE[brief.mode],",
-    replace: "        enum: OPS_BY_MODE[brief.mode],",
+    find: "        enum: brief.outOfCharacter ? (['narrate_only'] as const) : ops,",
+    replace: "        enum: ops,",
     test: "an out-of-character message cannot start a fight, because engage is undecodable",
   },
   {
@@ -268,6 +268,55 @@ const MUTANTS = [
     find: "    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,",
     replace: "    reprisalBy: null,",
     test: "the DM is told who is about to strike, so it can narrate the blow coming",
+  },
+  {
+    rule: "moving actually relocates the player",
+    file: "src/world.ts",
+    find: "      return { ...next, here: e.to, locations, entities, scene: dest.name };",
+    replace: "      return { ...next, locations, entities };",
+    test: "moving takes the player somewhere real and remembers they went",
+  },
+  {
+    rule: "the direction enum is built from real exits",
+    file: "src/director.ts",
+    find: "  const dirs = brief.exits.length > 0 ? brief.exits : (['out'] as readonly Direction[]);",
+    replace: "  const dirs = ['north', 'south', 'east', 'west', 'up', 'down', 'in', 'out'] as readonly Direction[];",
+    test: "the DM can only propose exits that exist",
+  },
+  {
+    rule: "a direction with no exit is refused",
+    file: "src/rules.ts",
+    find: "    if (dest === undefined) {",
+    replace: "    if (false) {",
+    test: "a direction that is not an exit is refused rather than inventing a door",
+  },
+  {
+    rule: "you cannot walk out of a fight",
+    file: "src/rules.ts",
+    find: "    const pinned = working.mode === 'combat';",
+    replace: "    const pinned = false;",
+    test: "you cannot stroll out of a fight",
+  },
+  {
+    rule: "reach is scoped to the current room",
+    file: "src/world.ts",
+    find: "  return [...w.entities.values()].filter((e) => e.id !== w.protagonist && e.at === w.here);",
+    replace: "  return [...w.entities.values()].filter((e) => e.id !== w.protagonist);",
+    test: "someone in another room is not in reach, and cannot be named",
+  },
+  {
+    rule: "a foe in another room does not strike",
+    file: "src/world.ts",
+    find: "    if (e.at !== w.here) continue;",
+    replace: "    if (false) continue;",
+    test: "a foe left behind in another room stops swinging at you",
+  },
+  {
+    rule: "the map shows only visited rooms",
+    file: "src/world.ts",
+    find: "      .filter((l) => l.visited)",
+    replace: "      .filter(() => true)",
+    test: "the map never leaks the names of rooms not yet visited",
   },
 ];
 

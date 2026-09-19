@@ -139,6 +139,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
         hostile: proposal.introduces.hostile,
         dead: false,
         power: proposal.introduces.hostile ? MINTED_POWER : 0,
+        at: working.here,
       };
       emit({ kind: 'introduced', entity });
       targetId = entity.id;
@@ -170,6 +171,32 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
     // blow that started it would drop the player's action just as surely as the old
     // narrate_only path did, only less visibly, because the DM narrates a wound that the
     // world never takes.
+  }
+
+  if (proposal.op === 'move') {
+    const place = working.locations.get(working.here);
+    const dest = place?.exits.get(proposal.direction);
+    if (dest === undefined) {
+      rule({
+        kind: 'drop',
+        why: 'no-such-exit',
+        detail: `There is no way ${proposal.direction} from here.`,
+      });
+      return finish(true);
+    }
+    // Named rather than inline so the mutation harness can target this rule specifically.
+    // The bare mode check appears three times in this file.
+    const pinned = working.mode === 'combat';
+    if (pinned) {
+      rule({
+        kind: 'drop',
+        why: 'pinned-in-combat',
+        detail: 'You are too closely engaged to simply walk away.',
+      });
+      return finish(true);
+    }
+    emit({ kind: 'moved', to: dest, via: proposal.direction });
+    return finish(false);
   }
 
   if (proposal.op === 'narrate_only' || proposal.op === 'introduce' || proposal.op === 'talk') {
