@@ -16,7 +16,11 @@ recipe.
 
 ## Driving conventions
 
-- Drive the browser through `drive.mjs`. The HTTP API is not the user's path.
+- Two harnesses, and they answer different questions. Use `drive.mjs` when the question is
+  about the browser. Use `tools/api-cli/run.mjs` when the question is about server logic,
+  because it is faster, needs no browser, and can assert on status codes the UI hides.
+- Drive the browser through `drive.mjs` for anything a player sees. The HTTP API is not the
+  user's path for UI claims.
 - Emulate a phone. The harness defaults to 390x844 and the app is mobile-first.
 - Prefer the `data-testid` handles listed in the skill over CSS classes or DOM position.
 - Gate on `!document.body.dataset.busy` after clicking Act. Never use a fixed sleep.
@@ -49,9 +53,11 @@ behaviour. It then uses exactly four H2 sections in this order.
 
 ## Features
 
+- [The HTTP API](./api.md) covers every endpoint, the error contract, concurrency, restart
+  and secrecy. Drive this first when the question is whether the server works.
 - [Start a session](./start-a-session.md) covers first load, the opening scene, resuming an
   existing session, and recovery from a stale session id.
 - [Take a turn](./take-a-turn.md) covers the core loop of utterance, narration, dice, and the
-  resulting state change.
+  resulting state change, plus out-of-character messages.
 - [Engine authority](./engine-authority.md) covers the engine overruling the Dungeon Master,
   which is the product's central claim and the thing most likely to regress silently.

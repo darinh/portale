@@ -18,6 +18,9 @@ starting a new one.
 - Open `http://127.0.0.1:8787/` in a browser.
 - Reload the page while a session is in progress.
 - Return to the page later, with the session id still in `localStorage`.
+- `POST /api/session`, optionally with `{"scenario": "...", "seed": 123}`. See
+  [the API feature](./api.md).
+- `node tools/api-cli/run.mjs --serve scripted begin`.
 
 ## Driving it with drive.mjs
 
@@ -57,3 +60,6 @@ Preconditions:
   has never seen, which is exactly the `session-recover` path.
 - The opening narration is fixed scenario text, not model output. It appears even with the
   model offline, so its presence does not prove the DM works.
+- An unknown `scenario` or a non-numeric `seed` is refused with 400 rather than falling back
+  to the default. A harness that expects a silent fallback is testing behaviour the server no
+  longer has.

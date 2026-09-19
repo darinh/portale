@@ -178,6 +178,55 @@ const MUTANTS = [
     replace: "  emit({ kind: 'narrated', text: proposal.narration });",
     test: "bookkeeping tokens never reach the player, even when the DM writes them",
   },
+  {
+    rule: "static serving cannot escape the public directory",
+    file: "src/app.ts",
+    find: "      if (resolved !== publicDir && !resolved.startsWith(publicDir + sep)) {",
+    replace: "      if (false) {",
+    test: "directory traversal cannot escape the public directory",
+  },
+  {
+    rule: "one turn at a time per session",
+    file: "src/app.ts",
+    find: "        if (inFlight.has(session.id)) {",
+    replace: "        if (false) {",
+    test: "two turns at once on one session are refused with 409",
+  },
+  {
+    rule: "the in-flight claim is always released",
+    file: "src/app.ts",
+    find: "          inFlight.delete(session.id);",
+    replace: "          void 0;",
+    test: "the in-flight guard is released, so the next turn still works",
+  },
+  {
+    rule: "request bodies are bounded",
+    file: "src/app.ts",
+    find: "    if (size > MAX_BODY_BYTES) throw new BadRequest('request body too large');",
+    replace: "    if (false) throw new BadRequest('request body too large');",
+    test: "an oversized body is refused rather than buffered",
+  },
+  {
+    rule: "an utterance must be a string",
+    file: "src/app.ts",
+    find: "        if (typeof raw !== 'string') return json(res, 400, { error: 'utterance must be a string' });",
+    replace: "        if (false) return json(res, 400, { error: 'utterance must be a string' });",
+    test: "an empty, missing, non-string or oversized utterance is refused",
+  },
+  {
+    rule: "an unknown scenario is refused",
+    file: "src/app.ts",
+    find: "        if (wanted !== undefined && !SCENARIOS.some((s) => s.id === wanted)) {",
+    replace: "        if (false) {",
+    test: "an unknown scenario is refused instead of silently falling back",
+  },
+  {
+    rule: "a session rebuilds from its log when the cache is cold",
+    file: "src/app.ts",
+    find: "    const session: Session = { id, world: stored.events.reduce(apply, base) };",
+    replace: "    const session: Session = { id, world: base };",
+    test: "a session survives a full server restart, proving the cache holds no authority",
+  },
 ];
 
 function runOne(testName) {

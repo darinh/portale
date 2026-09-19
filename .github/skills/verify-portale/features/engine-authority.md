@@ -13,6 +13,9 @@ its own proof.
 - `authority-cap` damage beyond the cap is rewritten rather than trusted.
 - `authority-undecodable` an action the mode does not allow is never offered to the model at
   all, so it cannot be proposed.
+- `authority-scrub` bookkeeping tokens the DM writes into prose never reach the player.
+- `authority-mint` an invented character's id derives from the world, so replay is stable and
+  two sessions cannot collide.
 - `authority-settle` the turn still settles when the model is unreachable.
 - `authority-secrets` DM-only lore never reaches the browser.
 
@@ -34,17 +37,22 @@ Preconditions:
 - **Replayable.** Start two sessions with the same seed by posting `{"seed":42}` and drive the
   same utterance in each. The roll lines match. This is the user-visible half of the property
   that `packages/app/test/engine.test.ts` proves directly.
-- **Clamp, visible to the player.** Under the scripted DM, turn one is a legal attack and
-  every turn after it proposes difficulty 30 and damage 999, both illegal. Drive two turns,
-  then
+- **Clamp and cap, both visible to the player.** Under the scripted DM, turn one is a legal
+  attack and every turn after it proposes difficulty 30 and damage 999, both illegal. Drive
+  two turns, then
   `assert "document.querySelectorAll('.ruled').length > 0" "the ruling reached the transcript"`
   and
   `assert "document.body.innerText.includes('the table settles on 25')" "the player was told"`.
-  The roll line on that turn must read `DC 25`, not `DC 30`.
-- **Clamp, drop, cap at the unit level.** The remaining rule paths need a DM that misbehaves
-  in ways the script does not cover. Prove them with `node --test "test/**/*.test.ts"` in
-  `packages/app`, and prove the tests themselves are real with `node tools/mutate/run.mjs`,
-  which deletes each rule and requires the test named for it to fail.
+  The roll line on that turn must read `DC 25`, not `DC 30`. The damage cap shows on the same
+  turn whenever the roll succeeds.
+- **Scrub.** The engine strips entity ids and `~newN` slots out of narration before the player
+  sees them. Assert `assert "!/~new\\d/.test(document.body.innerText)" "no slot tokens on screen"`
+  and `assert "!/\\be_[a-z0-9_]+\\b/.test(document.body.innerText)" "no entity ids on screen"`.
+- **Drop and mint at the unit level.** The remaining rule paths need a DM that misbehaves in
+  ways the demo script does not cover. Prove them with
+  `node --test "test/**/*.test.ts"` in `packages/app`, and prove the tests themselves are real
+  with `node tools/mutate/run.mjs`, which deletes each rule and requires the test named for it
+  to fail.
 - **Undecodable.** Assert the mode gate holds on screen.
   `assert "document.querySelector('[data-testid=mode]').textContent === 'exploration'" "scene is out of combat"`.
   The attack op is absent from the schema in exploration, so the model cannot propose one. The
