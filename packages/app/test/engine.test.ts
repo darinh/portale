@@ -140,6 +140,46 @@ test('a mint slot with no lore is dropped rather than inventing a blank person',
   assert.ok(rulings.some((r) => r.kind === 'drop' && r.why === 'mint-without-lore'));
 });
 
+test('a move is not ruled against for a target the op never reads', () => {
+  const s = session();
+  const brief = briefFor(s.world, 'I go down');
+  const { events, rulings } = adjudicate(
+    s.world,
+    brief,
+    proposal({ op: 'move', direction: 'down', target: MINT_SLOTS[0], introduces: null }),
+  );
+
+  assert.deepEqual(rulings, [], 'a legal move must produce no ruling, whatever sits in target');
+  assert.ok(events.some((e) => e.kind === 'moved'), 'and it must actually move');
+});
+
+test('narrating is not ruled against for a target the op never reads', () => {
+  const s = session();
+  const brief = briefFor(s.world, 'I look around');
+  const { rulings } = adjudicate(
+    s.world,
+    brief,
+    proposal({ op: 'narrate_only', target: MINT_SLOTS[0], introduces: null, tick: 'none' }),
+  );
+
+  assert.deepEqual(rulings, []);
+});
+
+test('an op that does read the target is still ruled against for a bad one', () => {
+  const s = session();
+  const brief = briefFor(s.world, 'I swing at the shape in the dark');
+  const { rulings } = adjudicate(
+    s.world,
+    brief,
+    proposal({ op: 'attack', target: MINT_SLOTS[0], introduces: null }),
+  );
+
+  assert.ok(
+    rulings.some((r) => r.kind === 'drop' && r.why === 'mint-without-lore'),
+    'suppressing the ruling for move must not suppress it for violence',
+  );
+});
+
 test('replaying the event log rebuilds exactly the same world', async () => {
   const s = session();
   const dm = scriptedDirector([proposal({ difficulty: 5 })]);

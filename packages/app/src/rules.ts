@@ -215,37 +215,48 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
 
   emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });
 
+  /**
+   * `move` and `narrate_only` do not act on anybody. The schema still forces the target
+   * field to be filled, so whatever sits in it on those turns is noise, and resolving it
+   * produced a ruling on every walk into an empty room. Ruling on a field the op never
+   * reads trains the player to scroll past rulings, which costs the one mechanism that
+   * makes the engine's authority visible.
+   */
+  const opReadsTarget = proposal.op !== 'move' && proposal.op !== 'narrate_only';
+
   let targetId: EntityId | null = null;
 
-  if (proposal.target === '~new1' || proposal.target === '~new2') {
-    if (proposal.introduces === null) {
-      rule({
-        kind: 'drop',
-        why: 'mint-without-lore',
-        detail: 'The DM reached for a new character but did not say who they were.',
-      });
+  if (opReadsTarget) {
+    if (proposal.target === '~new1' || proposal.target === '~new2') {
+      if (proposal.introduces === null) {
+        rule({
+          kind: 'drop',
+          why: 'mint-without-lore',
+          detail: 'The DM reached for a new character but did not say who they were.',
+        });
+      } else {
+        const entity: Entity = {
+          id: mintId(working),
+          name: proposal.introduces.name,
+          lore: proposal.introduces.lore,
+          hp: { now: MINTED_HP, max: MINTED_HP },
+          hostile: proposal.introduces.hostile,
+          dead: false,
+          power: proposal.introduces.hostile ? MINTED_POWER : 0,
+          at: working.here,
+        };
+        emit({ kind: 'introduced', entity });
+        targetId = entity.id;
+      }
     } else {
-      const entity: Entity = {
-        id: mintId(working),
-        name: proposal.introduces.name,
-        lore: proposal.introduces.lore,
-        hp: { now: MINTED_HP, max: MINTED_HP },
-        hostile: proposal.introduces.hostile,
-        dead: false,
-        power: proposal.introduces.hostile ? MINTED_POWER : 0,
-        at: working.here,
-      };
-      emit({ kind: 'introduced', entity });
-      targetId = entity.id;
-    }
-  } else {
-    const named = working.entities.get(proposal.target);
-    if (named === undefined) {
-      rule({ kind: 'drop', why: 'absent-target', detail: 'The DM named someone who is not here.' });
-    } else if (named.dead && proposal.op === 'attack') {
-      rule({ kind: 'drop', why: 'already-dead', detail: `${named.name} has already fallen.` });
-    } else {
-      targetId = named.id;
+      const named = working.entities.get(proposal.target);
+      if (named === undefined) {
+        rule({ kind: 'drop', why: 'absent-target', detail: 'The DM named someone who is not here.' });
+      } else if (named.dead && proposal.op === 'attack') {
+        rule({ kind: 'drop', why: 'already-dead', detail: `${named.name} has already fallen.` });
+      } else {
+        targetId = named.id;
+      }
     }
   }
 
