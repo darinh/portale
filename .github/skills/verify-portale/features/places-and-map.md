@@ -47,7 +47,8 @@ Preconditions:
   `assert "document.querySelector('.exit').disabled === true"`.
 - **A generated delve.** Boot with `PORTALE_DM=wander`, then
   `goto "/?scenario=delve&seed=20260919"`, click `.exit` several times, and assert the map
-  reaches three or more rooms and that `.line.move` counts one per move.
+  reaches three or more rooms, that `.line.move` counts one per move, and that
+  `document.querySelectorAll('.ruled').length === 0` while you are only walking.
 - **The seed is the dungeon.** No browser needed. Post the same seed twice and a third seed
   once, then compare the opening transcript and exits.
 
@@ -68,11 +69,10 @@ Preconditions:
   with `turn % exits.length`. A second session on the same instance therefore walks a
   different route than the first. Restart the server between map recipes, or assert on room
   counts rather than on which room you end in.
-- Moving into an empty room currently prints the ruling `The DM reached for a new character
-  but did not say who they were.` The move still lands. `rules.ts` resolves the proposal's
-  target for every op, including `move`, which never uses one, and the schema requires the
-  field to be filled with something. Do not assert `.ruled` is empty on a movement recipe,
-  and do not read that line as a failed move. Known product bug, reported separately.
+- A legal move into an empty room produces no ruling. It used to: `rules.ts` resolved the
+  proposal's target for every op, including `move`, which never reads one, so every walk
+  printed `The DM reached for a new character but did not say who they were.` If you see
+  that line on a movement turn again, the `opReadsTarget` guard has regressed.
 - The map layout is a sketch, not a survey. Rooms are placed breadth first from the player
   and collisions nudge sideways, so geometry is approximate and two runs may draw the same
   dungeon slightly differently. Assert on counts and on which room is current, never on

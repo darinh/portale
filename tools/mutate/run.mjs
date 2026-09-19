@@ -39,6 +39,20 @@ const MUTANTS = [
     test: "a mint slot with no lore is dropped rather than inventing a blank person",
   },
   {
+    rule: "ops that never read the target are not ruled against for it",
+    file: "src/rules.ts",
+    find: "  const opReadsTarget = proposal.op !== 'move' && proposal.op !== 'narrate_only';",
+    replace: "  const opReadsTarget = true;",
+    test: "a move is not ruled against for a target the op never reads",
+  },
+  {
+    rule: "suppressing the target ruling is scoped to ops that ignore the target",
+    file: "src/rules.ts",
+    find: "  const opReadsTarget = proposal.op !== 'move' && proposal.op !== 'narrate_only';",
+    replace: "  const opReadsTarget = false;",
+    test: "an op that does read the target is still ruled against for a bad one",
+  },
+  {
     rule: "attack is undecodable outside combat",
     file: "src/director.ts",
     find: "  exploration: ['skill_check', 'talk', 'move', 'engage', 'narrate_only'],",
