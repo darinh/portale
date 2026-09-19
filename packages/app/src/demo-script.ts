@@ -24,6 +24,7 @@ export const DEMO_SCRIPT: Proposal[] = [
     difficulty: 12,
     damage: 4,
     introduces: null,
+    tick: 'c_harbourmaster',
   },
   {
     narration: 'She twists away, and for a moment the whole room seems to hold its breath.',
@@ -34,5 +35,6 @@ export const DEMO_SCRIPT: Proposal[] = [
     difficulty: 30,
     damage: 999,
     introduces: null,
+    tick: 'c_harbourmaster',
   },
 ];

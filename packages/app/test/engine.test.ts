@@ -13,7 +13,7 @@ import type { Proposal } from '../src/director.ts';
 import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
 import { adjudicate } from '../src/rules.ts';
-import { apply, entityId, fold, meter, project } from '../src/world.ts';
+import { apply, clockId, entityId, fold, meter, project } from '../src/world.ts';
 
 const SCENARIO = SCENARIOS[0]!;
 const MARGA = entityId('e_marga');
@@ -28,6 +28,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     difficulty: 12,
     damage: 4,
     introduces: null,
+    tick: 'c_harbourmaster',
     ...over,
   };
 }
@@ -240,6 +241,95 @@ test('the player utterance survives a reload, because it is in the log', async (
 test('a meter clamps on construction rather than trusting its caller', () => {
   assert.equal(meter(50, 20).now, 20);
   assert.equal(meter(-5, 20).now, 0);
+});
+
+const HARBOUR = clockId('c_harbourmaster');
+
+test('the DM can advance pressure that exists, one segment at a time', () => {
+  const w = begin(SCENARIO, seed(3));
+  const before = w.clocks.get(HARBOUR)!;
+  assert.equal(before.filled, 0);
+
+  const after = fold(w, adjudicate(w, briefFor(w, 'I shout'), proposal({ tick: HARBOUR })).events);
+  assert.equal(after.clocks.get(HARBOUR)!.filled, 1, 'the engine decides the step, not the model');
+});
+
+test('a clock the DM invented is refused', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(w, briefFor(w, 'I shout'), proposal({ tick: 'c_made_up' }));
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'no-such-clock'));
+  assert.equal(events.some((e) => e.kind === 'ticked'), false);
+});
+
+test('none means none', () => {
+  const w = begin(SCENARIO, seed(3));
+  const { events } = adjudicate(w, briefFor(w, 'I sit quietly'), proposal({ tick: 'none' }));
+  assert.equal(events.some((e) => e.kind === 'ticked'), false);
+  assert.equal(events.some((e) => e.kind === 'ruled'), false, 'none is not an error');
+});
+
+test('a full clock pays off exactly once and then stops being offered', () => {
+  let w = begin(SCENARIO, seed(3));
+  const segments = w.clocks.get(HARBOUR)!.segments;
+
+  let payoffs = 0;
+  for (let i = 0; i < segments + 3; i++) {
+    const { events } = adjudicate(w, briefFor(w, 'I am careless'), proposal({ tick: HARBOUR }));
+    payoffs += events.filter((e) => e.kind === 'filled').length;
+    w = fold(w, events);
+  }
+
+  assert.equal(payoffs, 1, 'a clock fires its payoff once, however hard it is pushed');
+  assert.equal(w.clocks.get(HARBOUR)!.done, true);
+  assert.ok(
+    !briefFor(w, 'x').clocks.some((c) => c.id === HARBOUR),
+    'a finished clock must leave the enum, or the DM keeps poking a spent threat',
+  );
+});
+
+test('the transcript replays clock values rather than stamping the final one', () => {
+  let w = begin(SCENARIO, seed(3));
+  for (let i = 0; i < 3; i++) {
+    w = fold(w, adjudicate(w, briefFor(w, 'again'), proposal({ tick: HARBOUR })).events);
+  }
+
+  const shown = project(w)
+    .transcript.filter((l) => l.kind === 'clock')
+    .map((l) => l.text);
+
+  assert.deepEqual(
+    shown.map((t) => t.split('  ').at(-1)),
+    ['1/6', '2/6', '3/6'],
+    'each tick must show the value at that moment, not the value now',
+  );
+});
+
+test('a secret clock is tracked and never shipped to the browser', () => {
+  let w = begin(SCENARIO, seed(3));
+  const secret = clockId('c_secret');
+  const clocks = new Map(w.clocks);
+  clocks.set(secret, {
+    id: secret, name: 'Something you cannot see', kind: 'danger',
+    segments: 4, filled: 0, visibility: 'secret', payoff: 'It arrives.', done: false,
+  });
+  w = { ...w, clocks };
+
+  w = fold(w, adjudicate(w, briefFor(w, 'x'), proposal({ tick: secret })).events);
+
+  assert.equal(w.clocks.get(secret)!.filled, 1, 'the engine still tracks it');
+  const shipped = JSON.stringify(project(w));
+  assert.ok(!shipped.includes('Something you cannot see'), 'but the player never sees it');
+  assert.ok(!shipped.includes('c_secret'));
+});
+
+test('clocks survive a replay of the log', () => {
+  let w = begin(SCENARIO, seed(3));
+  for (let i = 0; i < 2; i++) {
+    w = fold(w, adjudicate(w, briefFor(w, 'again'), proposal({ tick: HARBOUR })).events);
+  }
+  const base = begin(SCENARIO, seed(3));
+  const replayed = fold({ ...base, seq: 0, log: [] }, w.log);
+  assert.equal(replayed.clocks.get(HARBOUR)!.filled, w.clocks.get(HARBOUR)!.filled);
 });
 
 test('moving takes the player somewhere real and remembers they went', () => {

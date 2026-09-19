@@ -61,6 +61,21 @@
       }
       .npc.dead { text-decoration: line-through; opacity: 0.45; }
       #exits { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 10px; align-items: center; }
+      #clocks { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 16px 10px; }
+      .clock { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dim); }
+      .clock .pips { display: flex; gap: 3px; }
+      .clock .pip {
+        width: 9px; height: 9px; border-radius: 2px;
+        border: 1px solid var(--edge); background: transparent;
+      }
+      .clock.danger .pip.on { background: var(--blood); border-color: var(--blood); }
+      .clock.progress .pip.on { background: var(--ok); border-color: var(--ok); }
+      .clock.done { opacity: 0.55; }
+      .line.clock { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+      .line.clockdone {
+        color: var(--gold); font-style: italic;
+        border-left: 2px solid var(--gold); padding-left: 10px;
+      }
       .exit {
         font-size: 12px; background: none; border: 1px solid var(--gold); color: var(--gold);
         border-radius: 99px; padding: 5px 12px; cursor: pointer; font-family: inherit;
@@ -104,6 +119,7 @@
       <svg id="map" data-testid="map" role="img" aria-label="Map of where you have been"></svg>
     </div>
     <div id="cast" data-testid="cast"></div>
+    <div id="clocks" data-testid="clocks"></div>
     <div id="exits" data-testid="exits"></div>
     <div id="thinking" data-testid="thinking" hidden>The DM considers…</div>
 
@@ -122,6 +138,7 @@
       const $ = (s) => document.querySelector(s);
       const log = $('#log');
       const cast = $('#cast');
+      const clocks = $('#clocks');
       const exits = $('#exits');
       const mapwrap = $('#mapwrap');
       const mapEl = $('#map');
@@ -234,6 +251,27 @@
           el.dataset.testid = `npc-${n.id}`;
           el.textContent = `${n.name} ${n.hp.now}/${n.hp.max}`;
           cast.append(el);
+        }
+
+        clocks.replaceChildren();
+        for (const c of view.clocks) {
+          const el = document.createElement('div');
+          el.className = `clock ${c.kind}${c.done ? ' done' : ''}`;
+          el.dataset.testid = `clock-${c.id}`;
+          el.dataset.filled = String(c.filled);
+
+          const pips = document.createElement('span');
+          pips.className = 'pips';
+          for (let i = 0; i < c.segments; i++) {
+            const p = document.createElement('span');
+            p.className = `pip${i < c.filled ? ' on' : ''}`;
+            pips.append(p);
+          }
+          const name = document.createElement('span');
+          name.textContent = c.name;
+
+          el.append(pips, name);
+          clocks.append(el);
         }
 
         exits.replaceChildren();

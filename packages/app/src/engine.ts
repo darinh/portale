@@ -10,8 +10,8 @@ import type { Seed } from './dice.ts';
 import { DirectorContractBreach, briefFor } from './director.ts';
 import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
-import { apply, entityId, locationId, meter, project } from './world.ts';
-import type { Direction, Entity, EntityId, Location, LocationId, PlayerView, World } from './world.ts';
+import { apply, clockId, entityId, locationId, meter, project } from './world.ts';
+import type { Clock, ClockId, Direction, Entity, EntityId, Location, LocationId, PlayerView, World } from './world.ts';
 
 export interface Scenario {
   readonly id: string;
@@ -20,8 +20,19 @@ export interface Scenario {
   readonly opening: string;
   readonly cast: readonly Omit<Entity, 'dead'>[];
   readonly rooms: readonly LocationDef[];
+  readonly clocks: readonly ClockDef[];
   readonly start: LocationId;
   readonly mode: World['mode'];
+}
+
+/** A clock as an author writes it. Always starts empty. */
+export interface ClockDef {
+  readonly id: ClockId;
+  readonly name: string;
+  readonly kind: Clock['kind'];
+  readonly segments: number;
+  readonly visibility: Clock['visibility'];
+  readonly payoff: string;
 }
 
 /** A room as an author writes it. Exits are plain pairs so a generator can emit them. */
@@ -48,6 +59,24 @@ export const SCENARIOS: readonly Scenario[] = [
       'Rain hammers the shutters. You have been waiting two hours for a woman who deals in things the harbourmaster would rather not see. The barkeep will not meet your eye, and the one-eyed smuggler in the corner has been watching you since you sat down.',
     mode: 'exploration',
     start: COMMON,
+    clocks: [
+      {
+        id: clockId('c_harbourmaster'),
+        name: 'The harbourmaster takes an interest',
+        kind: 'danger',
+        segments: 6,
+        visibility: 'open',
+        payoff: "Boots on the step. The harbourmaster's men are here, and they are not knocking.",
+      },
+      {
+        id: clockId('c_marga'),
+        name: 'Marga decides you are worth talking to',
+        kind: 'progress',
+        segments: 4,
+        visibility: 'open',
+        payoff: 'Marga pulls out the other chair with her boot. "Sit. You have earned five minutes."',
+      },
+    ],
     rooms: [
       {
         id: COMMON,
@@ -113,6 +142,9 @@ export function begin(scenario: Scenario, s: Seed): World {
     });
   }
 
+  const clocks = new Map<ClockId, Clock>();
+  for (const c of scenario.clocks) clocks.set(c.id, { ...c, filled: 0, done: false });
+
   const empty: World = {
     seq: 0,
     seed: s,
@@ -121,6 +153,7 @@ export function begin(scenario: Scenario, s: Seed): World {
     protagonist: PROTAGONIST,
     entities,
     locations,
+    clocks,
     here: scenario.start,
     log: [],
   };

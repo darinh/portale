@@ -16,7 +16,7 @@
  * be named, because it is not in the enum.
  */
 
-import type { Direction, Entity, EntityId, Location, Mode, World } from './world.ts';
+import type { Clock, Direction, Entity, EntityId, Location, Mode, World } from './world.ts';
 import { presentHere, reprisalActor } from './world.ts';
 
 /**
@@ -104,6 +104,8 @@ export interface SceneBrief {
   /** Where the player is standing, and the only ways out of it. */
   readonly place: Location;
   readonly exits: readonly Direction[];
+  /** Clocks still running. The DM may advance one of these, and invent none. */
+  readonly clocks: readonly Clock[];
 }
 
 export type Target = EntityId | MintSlot;
@@ -117,6 +119,12 @@ export interface Proposal {
   readonly difficulty: number;
   readonly damage: number;
   readonly introduces: { readonly name: string; readonly lore: string; readonly hostile: boolean } | null;
+  /**
+   * A clock this turn's events should advance, or 'none'. The enum is built from the
+   * clocks currently in play, so the DM can apply pressure that already exists but cannot
+   * invent it, and cannot quietly resolve a threat because the moment felt dramatic.
+   */
+  readonly tick: string;
 }
 
 export interface Director {
@@ -196,9 +204,10 @@ export function buildSchema(brief: SceneBrief): object {
         },
         required: ['name', 'lore', 'hostile'],
       },
+      tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },
       narration: { type: 'string' },
     },
-    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'narration'],
+    required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'narration'],
   };
 }
 
@@ -211,6 +220,12 @@ export function renderPrompt(brief: SceneBrief): string {
       ? ''
       : `\nAlso present but not targetable: ${brief.scenery.map((e) => e.name).join(', ')}.\n`;
   const history = brief.recent.length === 0 ? '' : `\nWhat has happened so far:\n${brief.recent.map((r) => `  ${r}`).join('\n')}\n`;
+  const clocks =
+    brief.clocks.length === 0
+      ? ''
+      : `\nPressure already in play. You may advance ONE of these with "tick", or "none":\n${brief.clocks
+          .map((c) => `  ${c.id} = ${c.name} (${c.filled}/${c.segments})`)
+          .join('\n')}\n`;
   const reprisal =
     brief.reprisalBy === null
       ? ''
@@ -248,7 +263,7 @@ ${roster}
   ~new1, ~new2 = someone NEW walking into the scene. Use one of these as "target" with
                  whatever op fits, and fill in "introduces" with their name and who they
                  are. Leave "introduces" null for everything else.
-${scenery}${history}${reprisal}
+${scenery}${history}${clocks}${reprisal}
 The player says: "${brief.utterance}"
 
 FIRST choose "op". Choose it from what the player is TRYING TO DO, before you write any prose.
@@ -280,6 +295,12 @@ then label it "narrate_only" or "skill_check". That silently throws the action a
 
 Set "difficulty" to how hard the attempt genuinely is, 5 for trivial and 25 for near
 impossible. Judge the attempt, not the drama you want.
+
+Set "tick" to a clock this turn genuinely advances, or "none". Advance a danger clock when
+the player is loud, violent, careless or slow. Advance a progress clock when they earn
+ground toward it. Do not tick a clock every turn out of habit, and do not tick one just
+because the scene felt tense. A clock that moves for no reason teaches the player to ignore
+it.
 
 THEN write "narration", two or three vivid sentences in second person, consistent with the
 op you already chose.
@@ -425,6 +446,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,
     place,
     exits: [...place.exits.keys()],
+    clocks: [...w.clocks.values()].filter((c) => !c.done),
     outOfCharacter: isOutOfCharacter(utterance),
   };
 }
