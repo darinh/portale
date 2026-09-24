@@ -226,9 +226,9 @@ export function buildSchema(brief: SceneBrief): object {
         },
         required: ['name', 'lore', 'hostile'],
       },
-      tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },
-      milestone: { type: 'string', enum: ['none', ...brief.vows.map((v) => v.id as string)] },
-      reveals: { type: 'string', enum: ['none', ...brief.cluesHere.map((c) => c.id as string)] },
+      tick: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.clocks.map((c) => c.id as string)] },
+      milestone: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.vows.map((v) => v.id as string)] },
+      reveals: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.cluesHere.map((c) => c.id as string)] },
       narration: { type: 'string' },
     },
     required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'milestone', 'reveals', 'narration'],
@@ -552,6 +552,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
   // mitigation rather than the cap. Whoever the player just named comes first, because
   // they are the one answer that must always be reachable; hostiles next, because a fight
   // is the case where a wrong target costs the most; the dead last.
+  const aside = isOutOfCharacter(utterance);
   const others = presentHere(w);
   const said = stripOocPrefix(utterance);
   const ranked = [...others].sort(
@@ -582,7 +583,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     scenery: ranked.slice(MAX_IN_REACH),
     recent: spoken.slice(-RECENT_LINES),
     utterance: stripOocPrefix(utterance),
-    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,
+    reprisalBy: w.mode === 'combat' && !aside ? (reprisalActor(w) ?? null) : null,
     place,
     exits: [...place.exits.keys()],
     clocks: [...w.clocks.values()].filter((c) => !c.done),
@@ -591,6 +592,6 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     // a fight is not just implausible, it is prompt noise on the turns where getting the
     // op right matters most, and it invites the DM to answer a swing with a found object.
     cluesHere: w.mode === 'combat' ? [] : cluesHere(w),
-    outOfCharacter: isOutOfCharacter(utterance),
+    outOfCharacter: aside,
   };
 }

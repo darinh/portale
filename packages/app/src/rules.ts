@@ -72,7 +72,7 @@ function mintId(w: World): EntityId {
   return entityId(`e_m${w.seed.toString(36)}_${w.seq.toString(36)}`);
 }
 
-export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Adjudication {
+export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adjudication {
   const events: WorldEvent[] = [];
   const rulings: Ruling[] = [];
 
@@ -286,10 +286,36 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
         }
       }
     }
+
+    // A fight is between the people in this room. Asking whether any hostile lived anywhere
+    // in the world left the player pinned beside the only foe's corpse, refused every exit,
+    // in 162 of 200 generated delves.
+    const foeHere = [...working.entities.values()].some(
+      (e) => e.id !== working.protagonist && e.hostile && !e.dead && e.at === working.here,
+    );
+    if (working.mode === 'combat' && !foeHere) emit({ kind: 'mode', to: 'exploration' });
+
     return { events, rulings, softFail };
   }
 
   emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });
+
+  /**
+   * An aside to the table is not a turn in the world. This is the one exit that skips
+   * `finish()`, so no clock moves, nothing is found, and nobody swings.
+   */
+  if (brief.outOfCharacter) {
+    const triedToAct =
+      proposal.op !== 'narrate_only' || proposal.tick !== 'none' || proposal.milestone !== 'none' || proposal.reveals !== 'none';
+    if (triedToAct) {
+      rule({
+        kind: 'drop',
+        why: 'aside-moves-nothing',
+        detail: 'The table pauses while you talk. Nothing in the world moves.',
+      });
+    }
+    return { events, rulings, softFail: false };
+  }
 
   /**
    * `move` and `narrate_only` do not act on anybody. The schema still forces the target
@@ -427,11 +453,6 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
 
     if (target !== undefined && target.hp.now - damage <= 0) {
       emit({ kind: 'died', target: targetId });
-
-      const foesLeft = [...working.entities.values()].some(
-        (e) => e.id !== working.protagonist && e.hostile && !e.dead,
-      );
-      if (working.mode === 'combat' && !foesLeft) emit({ kind: 'mode', to: 'exploration' });
     }
   }
 

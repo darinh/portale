@@ -59,6 +59,25 @@ test('the wandering DM can drive any scenario, including generated ones', async 
   );
 });
 
+test('no delve pins the player in a fight with nobody left to fight', async () => {
+  const pinned: number[] = [];
+  for (let n = 1; n <= 60; n++) {
+    const s = seed(n * 7919);
+    const session = { id: 't', world: begin(scenarioFor('delve', s), s) };
+    const dm = wanderingDirector();
+    for (let turn = 0; turn < 40 && !project(session.world).you.defeated; turn++) {
+      await takeTurn(session, 'onward', dm);
+      const w = session.world;
+      const foeHere = [...w.entities.values()].some((e) => e.hostile && !e.dead && e.at === w.here);
+      if (w.mode === 'combat' && !foeHere) {
+        pinned.push(n);
+        break;
+      }
+    }
+  }
+  assert.deepEqual(pinned, [], 'a fight with no foe in the room is a softlock, since moving is refused mid-fight');
+});
+
 test('the same seed always produces the same delve', () => {
   for (const s of SEEDS) {
     const a = generateDelve(seed(s));

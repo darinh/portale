@@ -1140,6 +1140,77 @@ test('combat is reachable and exits when the last foe falls', () => {
   }
 });
 
+test('combat ends when the last foe in the room falls, even with hostiles elsewhere', () => {
+  const lurker: WorldEvent = {
+    kind: 'introduced',
+    entity: {
+      id: entityId('e_lurker'),
+      name: 'A lurker on the pier',
+      lore: 'Waiting for someone else entirely.',
+      hp: meter(8, 8),
+      hostile: true,
+      dead: false,
+      power: 3,
+      at: SCENARIO.rooms.find((r) => r.id !== SCENARIO.start)!.id,
+    },
+  };
+
+  let ended = null;
+  for (let s = 1; s < 400 && ended === null; s++) {
+    let w = apply(begin(SCENARIO, seed(s)), lurker);
+    w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA, damage: 1 })).events);
+    if (w.mode !== 'combat' || w.entities.get(MARGA)!.dead) continue;
+    w = apply(w, { kind: 'damaged', target: MARGA, amount: w.entities.get(MARGA)!.hp.now - 1 });
+    const killing = adjudicate(w, briefFor(w, 'I finish her'), proposal({ difficulty: 5, damage: 4 }));
+    if (killing.events.some((e) => e.kind === 'died' && e.target === MARGA)) ended = fold(w, killing.events);
+  }
+
+  assert.ok(ended, 'expected some seed to land the killing blow');
+  assert.ok(
+    [...ended.entities.values()].some((e) => e.hostile && !e.dead && e.at !== ended.here),
+    'the fixture must keep a living hostile in another room, or it proves nothing',
+  );
+  assert.equal(ended.mode, 'exploration', 'nobody is left here to fight, so the fight is over');
+});
+
+test('an out-of-character aside mid-fight does not hand the foe a free swing', () => {
+  const w = inCombat(seed(11));
+  const brief = briefFor(w, '// wait, which one of them has the knife?');
+  assert.equal(brief.outOfCharacter, true, 'the fixture must actually be an aside');
+
+  const { events } = adjudicate(w, brief, proposal({ op: 'narrate_only', tick: 'none' }));
+  assert.equal(
+    events.some((e) => e.kind === 'rolled' && e.actor === MARGA),
+    false,
+    'time does not pass while the player talks to the table',
+  );
+});
+
+test('an out-of-character aside moves nothing in the world', () => {
+  const w = begin(SCENARIO, seed(8));
+  const brief = briefFor(w, '// what did the barkeep mean by that?');
+  const { events } = adjudicate(
+    w,
+    brief,
+    proposal({ op: 'skill_check', difficulty: 5, tick: 'c_harbourmaster', milestone: DEBT, reveals: 'c_ledger_page' }),
+  );
+
+  const moved = events.filter((e) => ['rolled', 'ticked', 'found', 'progressed', 'damaged', 'mode'].includes(e.kind));
+  assert.deepEqual(moved, [], 'an aside must not roll, tick, find or progress anything');
+  assert.ok(events.some((e) => e.kind === 'narrated'), 'the DM still answers the question');
+  assert.ok(events.some((e) => e.kind === 'ruled'), 'and a DM that tried to act anyway is overruled out loud');
+});
+
+test('an aside is offered no clock, no vow and no clue to move', () => {
+  const brief = briefFor(begin(SCENARIO, seed(8)), '// hang on, where is the cellar?');
+  assert.ok(brief.clocks.length > 0 && brief.vows.length > 0 && brief.cluesHere.length > 0, 'the room must have things to offer');
+
+  const props = (buildSchema(brief) as { properties: Record<string, { enum?: readonly string[] }> }).properties;
+  assert.deepEqual(props['tick']!.enum, ['none']);
+  assert.deepEqual(props['milestone']!.enum, ['none']);
+  assert.deepEqual(props['reveals']!.enum, ['none']);
+});
+
 test('a minted id is derived from the world, not from a clock or a module counter', () => {
   const a = begin(SCENARIO, seed(99));
   const mk = (w: typeof a) =>

@@ -377,7 +377,7 @@ const MUTANTS = [
   {
     rule: "the brief names the foe about to strike",
     file: "src/director.ts",
-    find: "    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,",
+    find: "    reprisalBy: w.mode === 'combat' && !aside ? (reprisalActor(w) ?? null) : null,",
     replace: "    reprisalBy: null,",
     test: "the DM is told who is about to strike, so it can narrate the blow coming",
   },
@@ -562,6 +562,41 @@ const MUTANTS = [
     find: "  const elsewhere = reachable.filter((c) => key(c) !== key(start));",
     replace: "  const elsewhere = [...reachable];",
     test: "the player starts at the entrance and nothing hostile shares it",
+  },
+  {
+    rule: "a fight ends when nobody in the room is left to fight",
+    file: "src/rules.ts",
+    find: "      (e) => e.id !== working.protagonist && e.hostile && !e.dead && e.at === working.here,",
+    replace: "      (e) => e.id !== working.protagonist && e.hostile && !e.dead,",
+    test: "combat ends when the last foe in the room falls, even with hostiles elsewhere",
+  },
+  {
+    rule: "the softlock guard holds across generated delves",
+    file: "src/rules.ts",
+    find: "    if (working.mode === 'combat' && !foeHere) emit({ kind: 'mode', to: 'exploration' });",
+    replace: "",
+    test: "no delve pins the player in a fight with nobody left to fight",
+  },
+  {
+    rule: "an aside skips the world's turn",
+    file: "src/rules.ts",
+    find: "  if (brief.outOfCharacter) {",
+    replace: "  if (false) {",
+    test: "an out-of-character aside mid-fight does not hand the foe a free swing",
+  },
+  {
+    rule: "an aside moves nothing, even from a DM that ignores the schema",
+    file: "src/rules.ts",
+    find: "  if (brief.outOfCharacter) {",
+    replace: "  if (false) {",
+    test: "an out-of-character aside moves nothing in the world",
+  },
+  {
+    rule: "an aside is offered nothing to tick",
+    file: "src/director.ts",
+    find: "      tick: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.clocks.map((c) => c.id as string)] },",
+    replace: "      tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },",
+    test: "an aside is offered no clock, no vow and no clue to move",
   },
 ];
 
