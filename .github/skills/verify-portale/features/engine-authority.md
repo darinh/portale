@@ -35,9 +35,25 @@ Preconditions:
 - **Dice are the engine's.** Drive one turn under the scripted DM and read the roll line. Then
   query the event log and confirm a `rolled` event exists whose `roll.face` matches the screen.
   The scripted DM proposes no outcome, so a roll on screen can only have come from the engine.
-- **Replayable.** Start two sessions with the same seed by posting `{"seed":42}` and drive the
-  same utterance in each. The roll lines match. This is the user-visible half of the property
-  that `packages/app/test/engine.test.ts` proves directly.
+- **Replayable.** On a fresh scripted server, run
+  `goto "/?scenario=lantern&seed=42"`,
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"`,
+  `type "[data-testid=utterance]" "I draw my blade and strike at Marga"`,
+  `click "[data-testid=send]"`, `wait "!document.body.dataset.busy"`, then
+  `dump authority-replay-a`.
+  Stop the server, start a new scripted server with a fresh database, repeat the same drive
+  steps, and `dump authority-replay-b`. The `.roll` lines in the two dumps match. Restarting
+  matters because the scripted DM's cursor belongs to the server process, not the session.
+  This is the user-visible half of the property that `packages/app/test/engine.test.ts`
+  proves directly. Compare the captured lines with:
+
+  ```powershell
+  $a = Get-Content "$outA\authority-replay-a.txt" | Where-Object { $_ -match 'd20' }
+  $b = Get-Content "$outB\authority-replay-b.txt" | Where-Object { $_ -match 'd20' }
+  Compare-Object $a $b
+  ```
+
+  A match produces no output.
 - **Clamp and cap, both visible to the player.** Under the scripted DM, the server's first
   turn is a legal attack and every turn after it proposes difficulty 30 and damage 999, both
   illegal. Drive two turns on a freshly started server, then
@@ -81,6 +97,7 @@ Preconditions:
   different failure path, connection refused rather than an unreachable model.
 - "The server's first turn" means the process's, not the session's. The scripted cursor lives
   in the director, which `server.ts` builds once, so a second session on the same instance
-  never sees the legal opening attack and stays in exploration. Restart between recipes.
+  never sees the legal opening attack and stays in exploration. Restart between recipes and
+  between the two halves of the replay proof.
 - Do not assert on the exact wording of a ruling. The detail strings are player-facing prose and
   are expected to change.

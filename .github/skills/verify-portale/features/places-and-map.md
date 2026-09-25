@@ -27,28 +27,34 @@ a seed, which is the same feature with the rooms built rather than written.
 
 Preconditions:
 
-- `PORTALE_DM=wander` for any movement recipe, in either scenario. `scripted` engages on the
-  server's first turn, and combat disables every exit button, so a movement proof under
-  `scripted` cannot move.
+- `PORTALE_DM=wander` in the generated delve for movement. The delve entrance never holds a
+  hostile, so the wandering DM chooses a legal exit instead of starting a fight.
 - A server started for this recipe. `wander` picks its exit with `turn % exits.length` and
   that counter is per process, so a second session walks a different route.
 
-- **Exits are offered.** `goto /` then
-  `assert "document.querySelectorAll('.exit').length === 2" "the common room has two ways out"`.
+- **Exits are offered.** Run `goto "/?scenario=delve&seed=20260919"`, then
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"` and
+  `assert "document.querySelectorAll('.exit').length > 0" "the delve entrance has a way out"`.
 - **No map until there is something to map.** `assert "document.querySelector('[data-testid=mapwrap]').hidden === true"`.
-- **Moving draws the map.** `click "[data-testid=exit-down]"`, `wait "!document.body.dataset.busy"`, then
+- **Moving draws the map.** `click "[data-testid=exits] .exit"`,
+  `wait "!document.body.dataset.busy"`, then
   `assert "document.querySelectorAll('#map rect.room').length === 2"` and
   `assert "document.querySelectorAll('#map rect.room.here').length === 1"`.
 - **Stubs mark the unexplored.** `assert "document.querySelectorAll('#map line.stub').length >= 1"`.
-- **Only what you have seen.** The room count growing from 2 to 3 as you move IS the secrecy
-  proof: `project` ships visited locations only, and nulls an exit's destination until you
+- **Only what you have seen.** The room count growing from one to two after one move proves
+  secrecy. `project` ships visited locations only and nulls an exit's destination until you
   have been there, so an unvisited room has no name in the payload to leak.
-- **Pinned in combat.** Start a fight, then check the exit buttons are disabled:
-  `assert "document.querySelector('.exit').disabled === true"`.
-- **A generated delve.** Boot with `PORTALE_DM=wander`, then
-  `goto "/?scenario=delve&seed=20260919"`, click `.exit` several times, and assert the map
-  reaches three or more rooms, that `.line.move` counts one per move, and that
-  `document.querySelectorAll('.ruled').length === 0` while you are only walking.
+- **The generated move is clean.** Assert
+  `assert "document.querySelectorAll('.line.move').length === 1" "the transcript records one move"` and
+  `assert "document.querySelectorAll('.ruled').length === 0" "a legal move needs no ruling"`.
+- **Pinned in combat.** Start a lantern session on the same server with
+  `goto "/?scenario=lantern&seed=4"`,
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"`,
+  `type "[data-testid=utterance]" "I go down"`,
+  `click "[data-testid=send]"` and `wait "!document.body.dataset.busy"`.
+  The wandering DM engages hostile Marga before considering the requested exit. Assert
+  `assert "document.body.dataset.mode === 'combat'" "the tavern turn started combat"` and
+  `assert "document.querySelector('.exit').disabled === true" "combat disables movement"`.
 - **The seed is the dungeon.** No browser needed. Post the same seed twice and a third seed
   once, then compare the opening transcript and exits.
 
@@ -65,6 +71,9 @@ Preconditions:
 - The scripted DM cannot drive a generated delve. It names the tavern's smuggler and the
   tavern's clock, neither of which exist there, and the engine refuses every turn. That is
   the engine being right and the harness being wrong. Use `PORTALE_DM=wander`.
+- The wandering DM also cannot prove tavern movement from the opening room. It engages
+  hostile Marga before considering an exit. Use the generated delve for movement and the
+  lantern only to prove that combat pins the player.
 - `wander` keeps its turn counter per process, like the scripted DM, and it picks its exit
   with `turn % exits.length`. A second session on the same instance therefore walks a
   different route than the first. Restart the server between map recipes, or assert on room
