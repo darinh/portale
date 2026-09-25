@@ -490,7 +490,7 @@ export function wanderingDirector(): Director {
       };
 
       if (brief.outOfCharacter) {
-        return { ...base, op: 'narrate_only', narration: 'You are told what you asked.' };
+        return { ...base, op: 'narrate_only', tick: 'none', milestone: 'none', reveals: 'none', narration: 'You are told what you asked.' };
       }
       if (foe !== undefined) {
         return {
@@ -499,7 +499,7 @@ export function wanderingDirector(): Director {
           narration: `${foe.name} moves, and the room narrows to the space between you.`,
         };
       }
-      if (brief.exits.length > 0) {
+      if (brief.mode !== 'combat' && brief.exits.length > 0) {
         return { ...base, op: 'move', narration: 'You take the passage and keep going.' };
       }
       return { ...base, op: 'narrate_only', narration: 'Nothing here but the sound of water.' };
@@ -513,7 +513,7 @@ export function wanderingDirector(): Director {
  * Short words and articles match everything and would rank the whole room as mentioned,
  * which is the same as ranking nobody.
  */
-const NAME_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'at', 'by', 'to']);
+const NAME_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'at', 'by', 'to', 'with', 'from', 'for', 'on', 'who', 'was', 'that']);
 
 function nameWords(name: string): readonly string[] {
   return name
@@ -535,8 +535,9 @@ function nameWords(name: string): readonly string[] {
  * list, whatever else does.
  */
 export function mentions(utterance: string, e: Entity): boolean {
-  const said = utterance.toLowerCase();
-  return nameWords(e.name).some((wd) => said.includes(wd));
+  // Whole words only, so "golen" does not name Olen.
+  const said = new Set(utterance.toLowerCase().split(/[^a-z0-9]+/));
+  return nameWords(e.name).some((wd) => said.has(wd));
 }
 
 export function briefFor(w: World, utterance: string): SceneBrief {

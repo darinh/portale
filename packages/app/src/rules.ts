@@ -28,13 +28,11 @@ import type { Entity, EntityId, World, WorldEvent } from './world.ts';
  * them on the way out. This is the boundary doing its job rather than trusting the input.
  */
 function scrubTokens(text: string, w: World): string {
-  let out = text;
-  for (const e of w.entities.values()) out = out.split(e.id).join(e.name);
-  return out
-    // Matches any slot-shaped token, not only the slots that exist. The model invented
-    // "~new3" in real play, and scrubbing only the declared slots let it straight through.
-    .replace(/~new\d+/gi, 'someone')
-    .replace(/\be_[a-z0-9_]+\b/gi, 'someone')
+  // One pass, so an id is replaced whole rather than by a shorter id that prefixes it, and
+  // an inserted name is never scanned again. Any slot-shaped token counts, not only the
+  // declared slots, because the model invented "~new3" in real play.
+  return text
+    .replace(/~new\d+|\be_[a-z0-9_]+\b/gi, (token) => w.entities.get(entityId(token.toLowerCase()))?.name ?? 'someone')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -47,7 +45,7 @@ export type Ruling =
 export interface Adjudication {
   readonly events: readonly WorldEvent[];
   readonly rulings: readonly Ruling[];
-  /** True when every part of the proposal was dropped and the turn produced no mechanics. */
+  /** True when the player's intent was dropped. The world may still have moved around them. */
   readonly softFail: boolean;
 }
 
@@ -189,8 +187,10 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
       return;
     }
     // Split from the check above so each half is mutation-testable on its own. This one
-    // is what stops the DM handing over evidence from a room the player is not in.
-    if (clue.at !== working.here) {
+    // is what stops the DM handing over evidence from a room the player is not in. It reads
+    // the room the turn started in, the one the DM was briefed on, so a clue noticed on
+    // the way out is not refused because the move has already landed.
+    if (clue.at !== w.here) {
       rule({
         kind: 'drop',
         why: 'clue-elsewhere',
@@ -222,8 +222,12 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
      * Once every clue is found the vow falls back to the general earned-something test,
      * because by then the remaining work is acting on what you know rather than learning
      * more, and there is nothing left to discover.
+     *
+     * Judged from the start of the turn, so the turn that turns up the LAST clue still
+     * counts as a discovery. Reading the world after the reveal made that one find the
+     * only discovery refused as unearned.
      */
-    const stillHidden = unfoundFor(working, vow.id).length > 0;
+    const stillHidden = unfoundFor(w, vow.id).length > 0;
     if (stillHidden && !foundSomething()) {
       rule({
         kind: 'drop',
@@ -352,7 +356,7 @@ export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adj
       }
     } else {
       const named = working.entities.get(proposal.target);
-      if (named === undefined) {
+      if (named === undefined || named.at !== working.here) {
         rule({ kind: 'drop', why: 'absent-target', detail: 'The DM named someone who is not here.' });
       } else if (named.dead && proposal.op === 'attack') {
         rule({ kind: 'drop', why: 'already-dead', detail: `${named.name} has already fallen.` });

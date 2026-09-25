@@ -206,12 +206,22 @@ test('the player view never carries DM-only lore', () => {
 });
 
 test('the per-turn schema offers only entities actually in reach', () => {
-  const w = begin(SCENARIO, seed(3));
+  let w = begin(SCENARIO, seed(3));
+  for (let i = 0; i < MAX_IN_REACH + 2; i++) {
+    w = apply(w, {
+      kind: 'introduced',
+      entity: { id: entityId(`e_drinker_${i}`), name: `Drinker ${i}`, lore: '', hp: meter(4, 4), hostile: false, dead: false, power: 0, at: w.here },
+    });
+  }
+  assert.notEqual(w.entities.get(entityId('e_customs'))!.at, w.here, 'the fixture needs someone in another room');
+
   const brief = briefFor(w, 'I look about');
   const schema = buildSchema(brief) as { properties: { target: { enum: string[] }; op: { enum: string[] } } };
+  const people = schema.properties.target.enum.filter((t) => !(MINT_SLOTS as readonly string[]).includes(t));
 
-  assert.ok(schema.properties.target.enum.includes('e_marga'));
-  assert.ok(!schema.properties.target.enum.includes('e_nobody'));
+  assert.ok(people.includes('e_marga'));
+  assert.ok(!people.includes('e_customs'), 'someone in another room is not in reach');
+  assert.equal(people.length, MAX_IN_REACH, 'a crowded room is capped');
   for (const slot of MINT_SLOTS) assert.ok(schema.properties.target.enum.includes(slot));
 });
 
@@ -256,6 +266,36 @@ test('a turn still settles when the DM is unreachable', async () => {
   assert.ok(s.world.seq > before, 'the world must advance even when the model fails');
   assert.ok(result.breach, 'the breach must be reported to the operator');
   assert.ok(result.view.transcript.length > 0, 'the player must still have something to read');
+});
+
+test('a broken transport is the operator\'s problem, and its raw error never reaches the player', async () => {
+  const s = session();
+  const broken = {
+    name: 'broken',
+    propose: () => Promise.reject(new Error('ECONNREFUSED 127.0.0.1:11434')),
+  };
+
+  const result = await takeTurn(s, 'I try the door', broken);
+
+  assert.match(result.breach ?? '', /ECONNREFUSED/, 'the operator still gets the raw error');
+  assert.ok(
+    s.world.log.some((e) => e.kind === 'ruled' && e.detail.includes('ECONNREFUSED')),
+    'and the log keeps it, because refusals are telemetry',
+  );
+  assert.ok(
+    !JSON.stringify(result.view).includes('ECONNREFUSED'),
+    'but nothing the browser receives may carry it',
+  );
+});
+
+test('someone in another room cannot be struck, even by a DM that ignores the schema', () => {
+  const w = begin(SCENARIO, seed(3));
+  const customs = entityId('e_customs');
+  assert.notEqual(w.entities.get(customs)!.at, w.here, 'the fixture needs its target in another room');
+
+  const { events } = adjudicate(w, briefFor(w, 'I throw a knife at the customs man'), proposal({ target: customs, difficulty: 5 }));
+  assert.ok(events.some((e) => e.kind === 'ruled' && e.why === 'absent-target'));
+  assert.equal(events.some((e) => e.kind === 'damaged' && e.target === customs), false);
 });
 
 test('the transcript records what the player said, not only what the DM said', async () => {
@@ -351,6 +391,17 @@ test('the DM cannot reveal a clue that belongs to another room', () => {
   assert.ok(!events.some((e) => e.kind === 'found'));
 });
 
+test('a clue noticed on the way out is judged by the room it was offered in', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I pocket the torn page and head for the cellar');
+  assert.ok(brief.cluesHere.some((c) => c.id === 'c_ledger_page'), 'the brief must offer the clue in this room');
+
+  const { events } = adjudicate(w, brief, proposal({ op: 'move', direction: 'down', reveals: 'c_ledger_page' }));
+  assert.ok(events.some((e) => e.kind === 'moved'), 'the move must happen for this to mean anything');
+  assert.ok(events.some((e) => e.kind === 'found'), 'the room the player left is where they found it');
+  assert.equal(events.some((e) => e.kind === 'ruled' && e.why === 'clue-elsewhere'), false);
+});
+
 test('a clue cannot be found twice', () => {
   let w = begin(SCENARIO, seed(3));
   const first = adjudicate(w, briefFor(w, 'I search behind the bar'), proposal({ op: 'skill_check', difficulty: 5, reveals: 'c_ledger_page' }));
@@ -396,7 +447,19 @@ test('whoever the player named is ranked first, ahead even of a hostile', () => 
 });
 
 test('with nobody named, the hostile still leads', () => {
-  const w = begin(SCENARIO, seed(3));
+  const base = begin(SCENARIO, seed(3));
+  const sailor = { id: entityId('e_sailor'), name: 'A dozing sailor', lore: '', hp: meter(6, 6), hostile: false, dead: false, power: 0, at: base.here };
+  const w = {
+    ...base,
+    entities: new Map([
+      [base.protagonist, base.entities.get(base.protagonist)!],
+      [sailor.id, sailor],
+      ...[...base.entities].filter(([id]) => id !== base.protagonist),
+    ]),
+  };
+  const byInsertion = [...w.entities.values()].filter((e) => e.id !== w.protagonist && e.at === w.here);
+  assert.equal(byInsertion[0]!.id, sailor.id, 'insertion order must put the peaceable sailor first, or this proves nothing');
+
   const brief = briefFor(w, 'I look around the room');
   assert.equal(brief.inReach[0]?.id, MARGA);
 });
@@ -442,6 +505,30 @@ test('a short word in a name does not drag the whole room into first place', () 
   // "A customs officer" is not in this room, but "a" and "the" are in almost any sentence.
   const brief = briefFor(w, 'I take a drink and look at the fire');
   assert.equal(brief.inReach[0]?.id, MARGA, 'articles must not count as naming anyone');
+});
+
+test('a common word inside a name is not the player naming them', () => {
+  const w = apply(begin(SCENARIO, seed(3)), {
+    kind: 'introduced',
+    entity: {
+      id: entityId('e_rat'),
+      name: 'A wharf-rat with a knife',
+      lore: 'Paid in coin so small it insults them.',
+      hp: meter(8, 8),
+      hostile: true,
+      dead: false,
+      power: 3,
+      at: SCENARIO.start,
+    },
+  });
+  const brief = briefFor(w, 'I sit down with Olen');
+  assert.equal(brief.inReach[0]?.name, 'Olen the barkeep', '"with" is not the rat\'s name');
+});
+
+test('part of a longer word is not the player naming someone', () => {
+  const w = begin(SCENARIO, seed(3));
+  const brief = briefFor(w, 'I study the golen idol on the shelf');
+  assert.equal(brief.inReach[0]?.id, MARGA, '"golen" does not name Olen, so the hostile still leads');
 });
 
 test('an undiscovered clue never reaches the browser', () => {
@@ -521,6 +608,23 @@ test('once every clue is found, the vow advances on action again', () => {
     events.some((e) => e.kind === 'progressed'),
     'with nothing left to learn, the remaining work is acting on what you know',
   );
+});
+
+test('the last clue still advances the vow, even with no roll behind it', () => {
+  const before = walk(begin(SCENARIO, seed(3)), LANTERN_WALK.slice(0, 7));
+  const left = unfoundFor(before, DEBT);
+  assert.equal(left.length, 1, 'the fixture must stand before exactly one hidden clue');
+  assert.equal(left[0]!.at, before.here, 'and in the room that holds it');
+
+  const { events } = adjudicate(
+    before,
+    briefFor(before, 'I read the manifest'),
+    proposal({ op: 'narrate_only', milestone: DEBT, reveals: left[0]!.id }),
+  );
+
+  assert.ok(events.some((e) => e.kind === 'found'), 'the clue must be found for this to mean anything');
+  assert.equal(events.some((e) => e.kind === 'rolled'), false, 'a quiet read must not smuggle in a roll');
+  assert.ok(events.some((e) => e.kind === 'progressed'), 'finding the final clue is still finding something');
 });
 
 test('with every clue found, talk still does not advance the vow', () => {
@@ -897,6 +1001,33 @@ test('bookkeeping tokens never reach the player, even when the DM writes them', 
   assert.match(narrated.text, /Marga/, 'a known id should become the character name, not a placeholder');
 });
 
+function withPeople(w: Session['world'], people: readonly { id: string; name: string }[]): Session['world'] {
+  return people.reduce(
+    (acc, p) =>
+      apply(acc, {
+        kind: 'introduced',
+        entity: { id: entityId(p.id), name: p.name, lore: '', hp: meter(8, 8), hostile: false, dead: false, power: 0, at: acc.here },
+      }),
+    w,
+  );
+}
+
+test('an id that begins another id is replaced whole, not by its prefix', () => {
+  const w = withPeople(begin(SCENARIO, seed(3)), [
+    { id: 'e_foe', name: 'Brask' },
+    { id: 'e_foe1', name: 'Ilse' },
+  ]);
+  const { events } = adjudicate(
+    w,
+    briefFor(w, 'I look around'),
+    proposal({ op: 'narrate_only', narration: 'e_foe1 lunges while e_foe watches e_you.' }),
+  );
+
+  const narrated = events.find((e) => e.kind === 'narrated');
+  assert.ok(narrated && narrated.kind === 'narrated');
+  assert.equal(narrated.text, 'Ilse lunges while Brask watches You.');
+});
+
 test('an out-of-character message cannot start a fight, because engage is undecodable', () => {
   const w = begin(SCENARIO, seed(3));
   const brief = briefFor(w, '// wait, was that last message cut off?');
@@ -1127,17 +1258,18 @@ test('the blow that starts a fight is resolved, not discarded', () => {
 });
 
 test('combat is reachable and exits when the last foe falls', () => {
-  let w = begin(SCENARIO, seed(5));
-  w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA })).events);
-  assert.equal(w.mode, 'combat');
-
-  w = apply(w, { kind: 'damaged', target: MARGA, amount: 11 });
-  const killing = adjudicate(w, briefFor(w, 'I finish her'), proposal({ difficulty: 5, damage: 12 }));
-  const after = fold(w, killing.events);
-
-  if (killing.events.some((e) => e.kind === 'died')) {
-    assert.equal(after.mode, 'exploration', 'combat must end when no hostile remains');
+  let ended = null;
+  for (let s = 1; s < 400 && ended === null; s++) {
+    let w = begin(SCENARIO, seed(s));
+    w = fold(w, adjudicate(w, briefFor(w, 'I draw'), proposal({ op: 'engage', target: MARGA, damage: 1 })).events);
+    if (w.mode !== 'combat' || w.entities.get(MARGA)!.dead) continue;
+    w = apply(w, { kind: 'damaged', target: MARGA, amount: w.entities.get(MARGA)!.hp.now - 1 });
+    const killing = adjudicate(w, briefFor(w, 'I finish her'), proposal({ difficulty: 5, damage: 12 }));
+    if (killing.events.some((e) => e.kind === 'died' && e.target === MARGA)) ended = fold(w, killing.events);
   }
+
+  assert.ok(ended, 'expected some seed to enter combat and land the killing blow');
+  assert.equal(ended.mode, 'exploration', 'combat must end when no hostile remains');
 });
 
 test('combat ends when the last foe in the room falls, even with hostiles elsewhere', () => {

@@ -450,7 +450,9 @@ export function project(w: World): PlayerView {
         });
         break;
       case 'ruled':
-        transcript.push({ kind: 'ruled', text: e.detail });
+        // A broken transport is the operator's problem. The player already reads the stall
+        // narration; the raw error stays in the log as telemetry and never ships.
+        if (e.why !== 'director-unreachable') transcript.push({ kind: 'ruled', text: e.detail });
         break;
       case 'moved':
         transcript.push({
