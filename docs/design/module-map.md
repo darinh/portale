@@ -21,9 +21,13 @@ union, and the branded id types that stop a `ClockId` being passed where a `VowI
 max cannot happen in a folded world. `Meter` itself is a plain interface, so a hand-built
 `{ now: 999, max: 20 }` still typechecks; the guarantee is the reducer's, not the type's.
 
-**Public** `apply`, `fold`, `project`, `presentHere`, `reprisalActor`, `cluesHere`, `unfoundFor`,
-`meter`, `shift`, the constructors `entityId` / `locationId` / `clockId` / `vowId` / `clueId`,
-`DIRECTIONS`, `VOW_TICKS` and `TICKS_PER_MILESTONE`.
+**Public** `apply`, `fold`, `project`, `outcomeOf`, `Outcome`, `presentHere`, `reprisalActor`,
+`cluesHere`, `unfoundFor`, `meter`, `shift`, the constructors `entityId` / `locationId` / `clockId` /
+`vowId` / `clueId`, `DIRECTIONS`, `VOW_TICKS` and `TICKS_PER_MILESTONE`.
+
+`outcomeOf` says whether a session is being played, won (every vow kept) or lost (the hero has
+fallen). It is derived from the world on every call and never stored, so it cannot disagree with
+the log, and `PlayerView.outcome` carries it to the browser.
 
 **The obligation that defines this module.** `apply` is total and trusting. It never rejects,
 never rolls, never decides. It is handed an event that has already been judged and it folds
@@ -126,8 +130,12 @@ per-process, not per-session.
 brief, ask the Director, adjudicate, fold the events into the session. It does not persist;
 `app.ts` appends the turn's events to the store and drops the cached session if that fails.
 
-**Public** `SCENARIOS`, `SCENARIO_IDS`, `scenarioFor`, `begin`, `takeTurn`, `newSeed`, `Session`,
-`Scenario`, `TurnResult`, and the authoring shapes `LocationDef`, `ClockDef`, `VowDef`, `ClueDef`.
+**Public** `SCENARIOS`, `SCENARIO_IDS`, `scenarioFor`, `begin`, `takeTurn`, `SessionOver`, `newSeed`,
+`Session`, `Scenario`, `TurnResult`, and the authoring shapes `LocationDef`, `ClockDef`, `VowDef`,
+`ClueDef`.
+
+`takeTurn` throws `SessionOver` for a session that is already won or lost, before it records
+anything, the player's words included. `app.ts` turns that into a 409 carrying the outcome.
 
 `scenarioFor` resolves an id to a scenario, generating one from the seed when the id names a
 generated scenario. That is why the database stores only an id and a seed: the world is

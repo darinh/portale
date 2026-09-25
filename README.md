@@ -64,6 +64,8 @@ shareable and a session rebuilds identically.
 - **Generated dungeons.** Graph first, with an explicit loop pass, because a spanning tree is
   a corridor you walk down and back rather than a place with choices in it.
 - **A world that fights back.** Hostiles strike at you every round of combat. You can lose.
+- **An ending.** Keep every vow and the tale is won; fall and it is lost. Either way the engine
+  takes no further turn, and the ending offers a new tavern session or a fresh delve.
 - **Rulings you can read.** When the engine overrules the DM it says so in the fiction.
 
 ## Shape
@@ -160,7 +162,7 @@ on failure, which is what makes it usable in a script.
 | `GET` | `/api/sessions` | sessions and their turn counts |
 | `POST` | `/api/session` | start one. Optional `scenario` and `seed` |
 | `GET` | `/api/session/:id` | the player's view |
-| `POST` | `/api/session/:id/turn` | take a turn. Body `{ "utterance": "..." }` |
+| `POST` | `/api/session/:id/turn` | take a turn. Body `{ "utterance": "..." }`. 409 once the session is won or lost |
 
 `packages/app/src/client.ts` is a typed client for all of the above, used by both the CLI and
 the API tests.

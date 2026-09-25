@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import { roll, seed } from '../src/dice.ts';
 import { scriptedDirector, briefFor, buildSchema, isOutOfCharacter, MAX_IN_REACH, MINT_SLOTS } from '../src/director.ts';
 import type { Proposal } from '../src/director.ts';
-import { SCENARIOS, begin, takeTurn } from '../src/engine.ts';
+import { SCENARIOS, SessionOver, begin, takeTurn } from '../src/engine.ts';
 import type { Session } from '../src/engine.ts';
 import { adjudicate } from '../src/rules.ts';
-import { apply, clockId, entityId, fold, meter, project, unfoundFor, vowId, TICKS_PER_MILESTONE } from '../src/world.ts';
+import { apply, clockId, entityId, fold, meter, outcomeOf, project, unfoundFor, vowId, TICKS_PER_MILESTONE } from '../src/world.ts';
 import type { WorldEvent } from '../src/world.ts';
 
 const SCENARIO = SCENARIOS[0]!;
@@ -582,6 +582,42 @@ function walk(start: Session['world'], steps: readonly Step[], seen?: (e: readon
   }
   return w;
 }
+
+test('a session is being played until it is won or lost', () => {
+  const w = begin(SCENARIO, seed(3));
+  assert.equal(outcomeOf(w), 'playing');
+  assert.equal(project(w).outcome, 'playing');
+  assert.equal(outcomeOf({ ...w, vows: new Map() }), 'playing', 'a session with nothing sworn is not won by default');
+});
+
+test('keeping every vow ends the session in victory', () => {
+  const w = walk(begin(SCENARIO, seed(3)), LANTERN_WALK);
+  assert.equal(w.vows.get(DEBT)!.done, true, 'the fixture must actually keep the vow');
+  assert.equal(outcomeOf(w), 'won');
+  assert.equal(project(w).outcome, 'won', 'the player must be told they have won');
+});
+
+test('the view says so when the hero has fallen', () => {
+  const w = apply(begin(SCENARIO, seed(3)), { kind: 'died', target: entityId('e_you') });
+  assert.equal(outcomeOf(w), 'lost');
+  assert.equal(project(w).outcome, 'lost');
+});
+
+test('a fallen hero takes no more turns', async () => {
+  const s = session();
+  s.world = apply(s.world, { kind: 'died', target: s.world.protagonist });
+  const before = s.world.log.length;
+  const dm = scriptedDirector([proposal({ op: 'narrate_only' })]);
+
+  await assert.rejects(() => takeTurn(s, 'I get up and keep fighting', dm), SessionOver);
+  assert.equal(s.world.log.length, before, 'a refused turn must leave nothing in the log, not even the words');
+});
+
+test('a won session takes no more turns', async () => {
+  const s = { id: 'won', world: walk(begin(SCENARIO, seed(3)), LANTERN_WALK) };
+  assert.equal(outcomeOf(s.world), 'won', 'the fixture must be a won session');
+  await assert.rejects(() => takeTurn(s, 'and then?', scriptedDirector([proposal({ op: 'narrate_only' })])), SessionOver);
+});
 
 test('a vow can be fulfilled, once, and then leaves the enum', () => {
   let fulfilments = 0;

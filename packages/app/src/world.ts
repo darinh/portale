@@ -295,6 +295,19 @@ export function fold(initial: World, events: readonly WorldEvent[]): World {
   return events.reduce(apply, initial);
 }
 
+export type Outcome = 'playing' | 'won' | 'lost';
+
+/**
+ * How the session stands. Derived from the world every time rather than stored, so it cannot
+ * disagree with it. A fallen hero has lost; a session whose every vow is kept has been won.
+ */
+export function outcomeOf(w: World): Outcome {
+  if (w.entities.get(w.protagonist)?.dead === true) return 'lost';
+  const vows = [...w.vows.values()];
+  if (vows.length > 0 && vows.every((v) => v.done)) return 'won';
+  return 'playing';
+}
+
 /**
  * Who strikes back this turn. The engine chooses, not the model, so the world pushes back
  * whether or not the DM thought to mention it. Deterministic: the most dangerous living
@@ -374,6 +387,8 @@ export interface ViewLead {
 export interface PlayerView {
   readonly seq: number;
   readonly mode: Mode;
+  /** Whether the session is still being played. Once it is won or lost, no turn is taken. */
+  readonly outcome: Outcome;
   readonly scene: string;
   readonly you: { readonly name: string; readonly hp: Meter; readonly defeated: boolean };
   readonly present: readonly ViewEntity[];
@@ -509,6 +524,7 @@ export function project(w: World): PlayerView {
   return {
     seq: w.seq,
     mode: w.mode,
+    outcome: outcomeOf(w),
     scene: w.scene,
     you: {
       name: you?.name ?? 'you',

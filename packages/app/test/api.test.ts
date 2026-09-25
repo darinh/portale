@@ -330,6 +330,54 @@ test('a turn that fails to save leaves the session exactly as it was', async () 
   });
 });
 
+/** Walks the Drowned Lantern, turning up every clue and claiming ground each time. */
+function keepTheVow(): Proposal[] {
+  const step = (over: Partial<Proposal>): Proposal => ({
+    narration: 'You keep going.',
+    op: 'narrate_only',
+    target: 'e_olen' as Proposal['target'],
+    direction: 'out',
+    ability: 'wisdom',
+    difficulty: 5,
+    damage: 0,
+    introduces: null,
+    tick: 'none',
+    milestone: 'v_debt',
+    reveals: 'none',
+    ...over,
+  });
+  return [
+    step({ reveals: 'c_ledger_page' }),
+    step({ op: 'move', direction: 'down' }),
+    step({ reveals: 'c_crate_mark' }),
+    step({ op: 'move', direction: 'up' }),
+    step({ op: 'move', direction: 'out' }),
+    step({ reveals: 'c_boot_prints' }),
+    step({ op: 'move', direction: 'north' }),
+    step({ reveals: 'c_manifest' }),
+    step({ op: 'move', direction: 'south' }),
+  ];
+}
+
+test('a finished session refuses another turn, and says why', async () => {
+  const dir = scratch();
+  const route = keepTheVow();
+  const { app, api } = await boot(dir, scriptedDirector(route));
+  try {
+    const { id } = await api.begin({ scenario: 'lantern', seed: 3 });
+    let outcome = '';
+    for (let i = 0; i < route.length; i++) outcome = (await api.turn(id, 'onward')).view.outcome;
+    assert.equal(outcome, 'won', 'the fixture must actually win the session');
+
+    const after = await api.raw<{ error: string; outcome: string }>('POST', `/api/session/${id}/turn`, { utterance: 'and then?' });
+    assert.equal(after.status, 409);
+    assert.equal(after.body.outcome, 'won');
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the session list counts turns, not raw events', async () => {
   await withApp(async ({ api }) => {
     const { id } = await api.begin({ seed: 3 });

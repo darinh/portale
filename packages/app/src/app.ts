@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { seed } from './dice.ts';
 import type { Seed } from './dice.ts';
 import type { Director } from './director.ts';
-import { SCENARIOS, SCENARIO_IDS, begin, scenarioFor, takeTurn } from './engine.ts';
+import { SCENARIOS, SCENARIO_IDS, SessionOver, begin, scenarioFor, takeTurn } from './engine.ts';
 import type { Session } from './engine.ts';
 import { openStore } from './store.ts';
 import type { Store } from './store.ts';
@@ -191,7 +191,13 @@ export function createApp(deps: AppDeps): App {
         inFlight.add(session.id);
         try {
           const before = session.world.log.length;
-          const result = await takeTurn(session, utterance, deps.director);
+          let result;
+          try {
+            result = await takeTurn(session, utterance, deps.director);
+          } catch (e) {
+            if (e instanceof SessionOver) return json(res, 409, { error: 'this session has ended', outcome: e.outcome });
+            throw e;
+          }
           try {
             store.append(session.id, session.world.log.slice(before));
           } catch (e) {

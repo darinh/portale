@@ -727,6 +727,48 @@ const MUTANTS = [
     replace: "",
     test: "an unknown api route is a JSON 404, never the index page",
   },
+  {
+    rule: "a fallen hero has lost",
+    file: "src/world.ts",
+    find: "  if (w.entities.get(w.protagonist)?.dead === true) return 'lost';",
+    replace: "",
+    test: "the view says so when the hero has fallen",
+  },
+  {
+    rule: "keeping every vow wins",
+    file: "src/world.ts",
+    find: "  if (vows.length > 0 && vows.every((v) => v.done)) return 'won';",
+    replace: "",
+    test: "keeping every vow ends the session in victory",
+  },
+  {
+    rule: "a session with no vows is never won by default",
+    file: "src/world.ts",
+    find: "  if (vows.length > 0 && vows.every((v) => v.done)) return 'won';",
+    replace: "  if (vows.every((v) => v.done)) return 'won';",
+    test: "a session is being played until it is won or lost",
+  },
+  {
+    rule: "an ended session takes no turn",
+    file: "src/engine.ts",
+    find: "  if (outcome !== 'playing') throw new SessionOver(outcome);",
+    replace: "",
+    test: "a fallen hero takes no more turns",
+  },
+  {
+    rule: "a won session takes no turn",
+    file: "src/engine.ts",
+    find: "  if (outcome !== 'playing') throw new SessionOver(outcome);",
+    replace: "  if (outcome === 'lost') throw new SessionOver(outcome);",
+    test: "a won session takes no more turns",
+  },
+  {
+    rule: "the API says a finished session is finished",
+    file: "src/app.ts",
+    find: "            if (e instanceof SessionOver) return json(res, 409, { error: 'this session has ended', outcome: e.outcome });",
+    replace: "",
+    test: "a finished session refuses another turn, and says why",
+  },
 ];
 
 function escapeRegex(text) {

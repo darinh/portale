@@ -131,8 +131,12 @@ Use these stable handles rather than positions or classes.
 | `[data-testid=lead-<id>]` | one discovered clue |
 | `[data-testid=mapwrap]` | the map, `hidden` until a second room is known |
 | `[data-testid=map]` | the map SVG itself |
+| `[data-testid=ending]` | the ending panel, `hidden` while the session is being played |
+| `[data-testid=ending-title]` | "Sworn and done" or "You have fallen" |
+| `[data-testid=again-lantern]` / `[data-testid=again-delve]` | start a new tale from the ending |
 | `document.body.dataset.busy` | present while a turn is in flight |
 | `document.body.dataset.mode` | exploration or combat, without reading text |
+| `document.body.dataset.outcome` | playing, won or lost |
 | `.you` `.dm` `.roll` `.mech` `.ruled` `.move` `.clock` `.vow` `.clue` | transcript line kinds |
 
 Always gate on `!document.body.dataset.busy` after clicking Act. A fixed sleep will pass

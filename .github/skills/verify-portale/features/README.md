@@ -70,3 +70,5 @@ behaviour. It then uses exactly four H2 sections in this order.
   only what you have seen, and procedurally generated delves.
 - [Clues and what you know](./clues.md) covers discoverable information, the panel that
   collects it, and the rule that a vow advances on learning rather than on winning.
+- [Endings](./endings.md) covers winning by keeping every vow, losing by falling, the refusal of
+  any further turn, and starting a new tale from the ending.
