@@ -78,7 +78,8 @@ database  packages/app/src/store.ts        node:sqlite, append-only event log
 ```
 
 The browser never reaches the model, and never receives a `World`. It receives a `PlayerView`,
-which omits the DM's private lore.
+which has no field for the lore the DM is given about each character. Narration is prose the
+DM wrote, though, and it can repeat what the DM was told.
 
 ## How the DM is kept honest
 
@@ -87,8 +88,8 @@ Two layers stand between the model and the world, and they are not variations of
 **Shape** belongs to the runtime. The JSON Schema is built fresh each turn from live world
 state and passed with the request, so decoding is constrained. An absent target, an
 out-of-mode action, a direction with no door, a clock that does not exist and a vow you never
-swore are not rejected, they are undecodable. Measured at 8/8 engine-valid against 0/8 for
-both alternatives.
+swore are not rejected, they are undecodable. An early probe measured 8/8 engine-valid against
+0/8 for both alternatives, on a simpler proposal shape than today's.
 
 **Legality** belongs to the engine. A schema-valid proposal can still be illegal, so
 `rules.ts` clamps what it can, drops what it cannot, and narrates the ruling rather than
@@ -98,7 +99,8 @@ The division holds everywhere. The DM proposes a difficulty; the engine clamps i
 nominates a clock; the engine decides how far it moves. The DM claims a milestone; the engine
 checks whether the turn earned one. The DM never chooses whether the world strikes back.
 
-Dice are a pure function of seed and turn number, so a session replays exactly.
+Dice are a pure function of the seed and the event count at the moment of the roll, so a
+session replays exactly from its log.
 
 Every DM proposal is recorded as a `proposed` event, never shown to the player. Without it
 the log cannot answer why a session went wrong, which is a question that has come up more
@@ -170,9 +172,9 @@ CDP, with no Playwright and no browser download. See its feature map for what to
 
 ## Documents
 
-- [`docs/design/dm-contract.md`](docs/design/dm-contract.md) is the architecture and why it is
-  shaped this way.
-- [`docs/design/module-map.md`](docs/design/module-map.md) is what each module owns.
+- [`docs/design/dm-contract.md`](docs/design/dm-contract.md) is the original design synthesis and
+  why it was shaped this way. It is marked historical; much of it was never built as written.
+- [`docs/design/module-map.md`](docs/design/module-map.md) is what each module owns today.
 - [`decisions.tsv`](decisions.tsv) is the decision trail, including a retracted finding.
 - [`tools/model-probe/README.md`](tools/model-probe/README.md) is the measurement evidence.
 

@@ -11,7 +11,8 @@ update to show what changed.
 - `turn-narrate` the DM's narration appears as a new line.
 - `turn-roll` a die roll appears showing the face, the DC, and success or failure.
 - `turn-effect` a successful attack reduces the target's hit points in the cast chips.
-- `turn-busy` the input is disabled and a working indicator shows while the DM thinks.
+- `turn-busy` the Act button is disabled and a working indicator shows while the DM thinks. The
+  text box stays enabled so the player can draft the next line.
 - `turn-ooc` a line starting `//` reaches the DM as a question and cannot start a fight.
   Live model only, see the gotchas.
 - `turn-persist` everything above survives a browser reload.

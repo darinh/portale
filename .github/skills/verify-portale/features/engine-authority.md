@@ -14,8 +14,9 @@ its own proof.
 - `authority-undecodable` an action the mode does not allow is never offered to the model at
   all, so it cannot be proposed.
 - `authority-scrub` bookkeeping tokens the DM writes into prose never reach the player.
-- `authority-mint` an invented character's id derives from the world, so replay is stable and
-  two sessions cannot collide.
+- `authority-mint` an invented character's id derives from the world's seed and event count, so
+  replay is stable and ids are unique within a session. Two sessions on the same seed and history
+  mint the same id, which is harmless because ids are session-scoped.
 - `authority-settle` the turn still settles when the model is unreachable.
 - `authority-secrets` DM-only lore never reaches the browser.
 

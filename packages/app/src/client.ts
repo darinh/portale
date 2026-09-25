@@ -18,28 +18,10 @@ export interface RawResponse<T = unknown> {
   readonly headers: Record<string, string>;
 }
 
-export interface Meter {
-  readonly now: number;
-  readonly max: number;
-}
-
-export interface ViewEntity {
-  readonly id: string;
-  readonly name: string;
-  readonly hp: Meter;
-  readonly dead: boolean;
-}
-
-export interface PlayerView {
-  readonly seq: number;
-  readonly mode: 'exploration' | 'combat';
-  readonly scene: string;
-  readonly you: { readonly name: string; readonly hp: Meter };
-  readonly present: readonly ViewEntity[];
-  /** What the player has discovered. Undiscovered clues are absent, never nulled. */
-  readonly leads: readonly { readonly id: string; readonly what: string; readonly vow: string }[];
-  readonly transcript: readonly { readonly kind: string; readonly text: string }[];
-}
+// The wire shape is the engine's own projection, so the client cannot drift from what the
+// server actually sends.
+import type { PlayerView } from './world.ts';
+export type { Meter, PlayerView, ViewEntity } from './world.ts';
 
 export interface Health {
   readonly ok: boolean;
@@ -122,7 +104,7 @@ export function portaleClient(baseUrl: string, opts: ClientOptions = {}) {
     health: () => expect<Health>('GET', '/api/health', 200),
 
     scenarios: () =>
-      expect<{ scenarios: { id: string; title: string; scene: string }[] }>(
+      expect<{ scenarios: { id: string; title: string; scene: string; generated: boolean }[] }>(
         'GET',
         '/api/scenarios',
         200,
