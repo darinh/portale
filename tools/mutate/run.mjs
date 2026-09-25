@@ -695,8 +695,8 @@ const MUTANTS = [
   {
     rule: "a turn saves whole or not at all",
     file: "src/store.ts",
-    find: "        db.exec('ROLLBACK');",
-    replace: "        db.exec('COMMIT');",
+    find: "      db.exec('ROLLBACK');",
+    replace: "      db.exec('COMMIT');",
     test: "a turn that fails to save leaves the session exactly as it was",
   },
   {
