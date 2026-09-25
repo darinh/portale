@@ -23,7 +23,7 @@ import { SCENARIOS, SCENARIO_IDS, SessionOver, begin, scenarioFor, takeTurn } fr
 import type { Session } from './engine.ts';
 import { openStore } from './store.ts';
 import type { Store } from './store.ts';
-import { apply, project } from './world.ts';
+import { apply, outcomeOf, project } from './world.ts';
 import type { World } from './world.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -142,7 +142,17 @@ export function createApp(deps: AppDeps): App {
       }
 
       if (req.method === 'GET' && path === '/api/sessions') {
-        return json(res, 200, { sessions: store.list() });
+        // How each tale stands is derived by rebuilding it, never stored, so the list cannot
+        // disagree with the session it names.
+        const sessions = store.list().map((s) => {
+          const world = rebuild(s.id)?.world;
+          return {
+            ...s,
+            title: scenarioById(s.scenario, seed(s.seed)).title,
+            outcome: world === undefined ? 'playing' : outcomeOf(world),
+          };
+        });
+        return json(res, 200, { sessions });
       }
 
       if (req.method === 'POST' && path === '/api/session') {
@@ -219,6 +229,14 @@ export function createApp(deps: AppDeps): App {
         const session = rebuild(viewMatch[1]!);
         if (session === null) return json(res, 404, { error: 'no such session' });
         return json(res, 200, { id: session.id, view: project(session.world) });
+      }
+      if (viewMatch && req.method === 'DELETE') {
+        const id = viewMatch[1]!;
+        if (inFlight.has(id)) return json(res, 409, { error: 'a turn is in flight' });
+        if (!store.delete(id)) return json(res, 404, { error: 'no such session' });
+        live.delete(id);
+        res.writeHead(204);
+        return res.end();
       }
       if (viewMatch) return json(res, 405, { error: 'method not allowed' });
 

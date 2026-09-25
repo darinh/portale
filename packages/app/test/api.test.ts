@@ -158,8 +158,67 @@ test('the wrong method on a real route is 405, not a silent fall through to stat
   await withApp(async ({ api }) => {
     const { id } = await api.begin({ seed: 1 });
     assert.equal((await api.raw('GET', `/api/session/${id}/turn`)).status, 405);
-    assert.equal((await api.raw('DELETE', `/api/session/${id}`)).status, 405);
+    assert.equal((await api.raw('PUT', `/api/session/${id}`)).status, 405);
   });
+});
+
+test('a session can be deleted, and is gone for good', async () => {
+  await withApp(async ({ api, dbPath }) => {
+    const { id } = await api.begin({ seed: 1 });
+    await api.turn(id, 'one');
+    const keep = (await api.begin({ seed: 2 })).id;
+
+    assert.equal((await api.raw('DELETE', `/api/session/${id}`)).status, 204);
+    assert.equal((await api.raw('GET', `/api/session/${id}`)).status, 404, 'the cache must forget it too');
+    assert.ok(!(await api.sessions()).sessions.some((s) => s.id === id));
+    assert.ok((await api.sessions()).sessions.some((s) => s.id === keep), 'and only that one');
+
+    const db = new DatabaseSync(dbPath);
+    try {
+      const left = db.prepare('SELECT COUNT(*) AS n FROM events WHERE session_id = ?').get(id) as { n: number };
+      assert.equal(Number(left.n), 0, 'no events may outlive their session');
+    } finally {
+      db.close();
+    }
+  });
+});
+
+test('deleting a session that does not exist is a 404', async () => {
+  await withApp(async ({ api }) => {
+    assert.equal((await api.raw('DELETE', '/api/session/00000000-0000-0000-0000-000000000000')).status, 404);
+  });
+});
+
+test('the session list puts the most recently played tale first', async () => {
+  await withApp(async ({ api }) => {
+    const older = (await api.begin({ seed: 1 })).id;
+    const newer = (await api.begin({ seed: 2 })).id;
+    assert.equal((await api.sessions()).sessions[0]?.id, newer, 'with nothing played, the newest leads');
+
+    await api.turn(older, 'I look around');
+    assert.equal((await api.sessions()).sessions[0]?.id, older, 'playing a tale brings it to the front');
+  });
+});
+
+test('the session list says how each tale stands and what it is', async () => {
+  const dir = scratch();
+  const route = keepTheVow();
+  const { app, api } = await boot(dir, scriptedDirector(route));
+  try {
+    const won = (await api.begin({ scenario: 'lantern', seed: 3 })).id;
+    for (let i = 0; i < route.length; i++) await api.turn(won, 'onward');
+    const open = (await api.begin({ scenario: 'delve', seed: 77 })).id;
+
+    const { sessions } = await api.sessions();
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    assert.equal(byId.get(won)?.outcome, 'won');
+    assert.equal(byId.get(won)?.title, 'The Drowned Lantern');
+    assert.equal(byId.get(open)?.outcome, 'playing');
+    assert.equal(byId.get(open)?.seed, 77, 'a delve is only reproducible if the list carries its seed');
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('an unknown api route is a JSON 404, never the index page', async () => {

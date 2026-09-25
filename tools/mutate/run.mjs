@@ -769,6 +769,41 @@ const MUTANTS = [
     replace: "",
     test: "a finished session refuses another turn, and says why",
   },
+  {
+    rule: "a deleted session takes its events with it",
+    file: "src/store.ts",
+    find: "        delEvents.run(id);",
+    replace: "",
+    test: "a session can be deleted, and is gone for good",
+  },
+  {
+    rule: "a deleted session leaves the cache too",
+    file: "src/app.ts",
+    find: "        live.delete(id);",
+    replace: "",
+    test: "a session can be deleted, and is gone for good",
+  },
+  {
+    rule: "deleting nothing is a 404",
+    file: "src/app.ts",
+    find: "        if (!store.delete(id)) return json(res, 404, { error: 'no such session' });",
+    replace: "        store.delete(id);",
+    test: "deleting a session that does not exist is a 404",
+  },
+  {
+    rule: "the list is ordered by when a tale was last played",
+    file: "src/store.ts",
+    find: "    GROUP BY s.id ORDER BY COALESCE(MAX(e.rowid), 0) DESC, s.rowid DESC",
+    replace: "    GROUP BY s.id ORDER BY s.rowid DESC",
+    test: "the session list puts the most recently played tale first",
+  },
+  {
+    rule: "the list says how each tale stands",
+    file: "src/app.ts",
+    find: "            outcome: world === undefined ? 'playing' : outcomeOf(world),",
+    replace: "            outcome: 'playing',",
+    test: "the session list says how each tale stands and what it is",
+  },
 ];
 
 function escapeRegex(text) {

@@ -139,15 +139,50 @@
       #ending p { margin: 0; color: var(--dim); font-size: 14px; }
       #ending .again { display: flex; flex-direction: column; gap: 8px; }
       #ending .again button.quiet { background: none; border: 1px solid var(--gold); color: var(--gold); }
+      body[data-screen="title"] > :not(header):not(#title):not(script) { display: none !important; }
+      body[data-screen="title"] #mode, body[data-screen="title"] #vitals { visibility: hidden; }
+      #menu {
+        min-height: 30px; padding: 0 12px; font-size: 12px; letter-spacing: 0.08em;
+        background: none; border: 1px solid var(--edge); color: var(--dim);
+      }
+      #title { flex: 1; overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 10px; }
+      #title .tagline { margin: 0 0 8px; color: var(--dim); font-style: italic; }
+      #title h2 { margin: 14px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); font-weight: 600; }
+      #title button.quiet { background: none; border: 1px solid var(--gold); color: var(--gold); }
+      #seeded { display: flex; gap: 8px; padding: 0; border: 0; background: none; }
+      #saves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+      .save { display: flex; align-items: center; gap: 8px; border: 1px solid var(--edge); border-radius: 10px; padding: 8px 10px; }
+      .save .about { flex: 1; min-width: 0; font-size: 14px; }
+      .save .about small { display: block; color: var(--dim); font-size: 12px; }
+      .save.won .about small { color: var(--gold); }
+      .save.lost .about small { color: var(--blood); }
+      .save button { min-height: 36px; padding: 0 12px; font-size: 13px; }
+      .save button.delete { background: none; border: 1px solid var(--edge); color: var(--dim); }
+      .save button.delete.armed { border-color: var(--blood); color: var(--blood); }
       [hidden] { display: none !important; }
     </style>
   </head>
-  <body>
+  <body data-screen="game">
     <header>
       <h1>Portale</h1>
       <span id="mode" data-testid="mode">exploration</span>
       <span id="vitals">hp <span id="hp" data-testid="hp">—</span></span>
+      <button type="button" id="menu" data-testid="menu">Tales</button>
     </header>
+
+    <section id="title" data-testid="title" hidden>
+      <p class="tagline">A solo tale, told by a Dungeon Master who cannot cheat you.</p>
+      <button type="button" id="continue" data-testid="continue" hidden></button>
+      <h2>Begin a new tale</h2>
+      <button type="button" id="new-lantern" data-testid="new-lantern">The Drowned Lantern</button>
+      <button type="button" id="new-delve" data-testid="new-delve" class="quiet">A new delve into the undercroft</button>
+      <form id="seeded" data-testid="seeded">
+        <input id="seed-input" data-testid="seed-input" inputmode="numeric" autocomplete="off" placeholder="Delve seed" aria-label="Delve seed" />
+        <button type="submit" data-testid="new-seeded-delve" class="quiet">Descend</button>
+      </form>
+      <h2 id="saves-heading" hidden>Your tales</h2>
+      <ul id="saves" data-testid="saves"></ul>
+    </section>
 
     <div id="vows" data-testid="vows" hidden></div>
     <div id="log" data-testid="log" aria-live="polite"></div>
@@ -191,6 +226,9 @@
       const mapwrap = $('#mapwrap');
       const mapEl = $('#map');
       const thinking = $('#thinking');
+      const titleEl = $('#title');
+      const continueEl = $('#continue');
+      const savesEl = $('#saves');
       const ending = $('#ending');
       const form = $('#act');
       const input = $('#utterance');
@@ -405,7 +443,7 @@
           headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
         });
         if (!res.ok) throw Object.assign(new Error(`${res.status} ${await res.text()}`), { status: res.status });
-        return res.json();
+        return res.status === 204 ? null : res.json();
       }
 
       async function boot() {
@@ -414,17 +452,22 @@
         const params = new URLSearchParams(location.search);
         const wanted = params.get('scenario');
         const wantedSeed = params.get('seed');
-        const fresh = (wanted !== null || wantedSeed !== null) && localStorage.getItem('portale.origin') !== location.search;
+        const linked = wanted !== null || wantedSeed !== null;
+        const fresh = linked && localStorage.getItem('portale.origin') !== location.search;
 
         if (sessionId && !fresh) {
           try {
             const { view } = await api(`/api/session/${sessionId}`);
             render(view);
+            showGame();
             return;
           } catch {
             localStorage.removeItem('portale.session');
+            sessionId = null;
           }
         }
+
+        if (!linked) return showTitle();
 
         const body = {};
         if (wanted !== null) body.scenario = wanted;
@@ -438,16 +481,110 @@
         localStorage.setItem('portale.session', id);
         localStorage.setItem('portale.origin', location.search);
         render(view);
+        showGame();
       }
 
-      /** A new tale from the ending screen. The old link is dropped so a reload resumes this one. */
+      /** A new tale from a menu. The old link is dropped so a reload resumes this one. */
       async function again(body) {
         history.replaceState(null, '', location.pathname);
         await startSession(body);
       }
 
+      async function resume(id) {
+        history.replaceState(null, '', location.pathname);
+        const { view } = await api(`/api/session/${id}`);
+        sessionId = id;
+        localStorage.setItem('portale.session', id);
+        localStorage.setItem('portale.origin', '');
+        render(view);
+        showGame();
+      }
+
+      function showGame() {
+        document.body.dataset.screen = 'game';
+        titleEl.hidden = true;
+      }
+
+      async function showTitle() {
+        // Fetched before the screen switches, so the title never shows a half-built list.
+        let sessions = [];
+        let failure = null;
+        try {
+          ({ sessions } = await api('/api/sessions'));
+        } catch (err) {
+          failure = err;
+        }
+
+        savesEl.replaceChildren();
+        if (failure !== null) savesEl.textContent = `The table cannot be reached. ${failure.message}`;
+
+        const latest = sessions.find((s) => s.outcome === 'playing');
+        continueEl.hidden = latest === undefined;
+        if (latest !== undefined) {
+          continueEl.textContent = `Continue ${latest.title} · ${latest.turns} ${latest.turns === 1 ? 'turn' : 'turns'}`;
+          continueEl.onclick = () => void resume(latest.id);
+        }
+
+        $('#saves-heading').hidden = sessions.length === 0;
+        for (const s of sessions) {
+          const li = document.createElement('li');
+          li.className = `save ${s.outcome}`;
+          li.dataset.testid = `save-${s.id}`;
+
+          const about = document.createElement('span');
+          about.className = 'about';
+          about.textContent = s.scenario === 'delve' ? `${s.title} · seed ${s.seed}` : s.title;
+          const status = document.createElement('small');
+          const state = s.outcome === 'won' ? 'won' : s.outcome === 'lost' ? 'lost' : 'in progress';
+          status.textContent = `${state} · ${s.turns} ${s.turns === 1 ? 'turn' : 'turns'}`;
+          about.append(status);
+
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.dataset.testid = `resume-${s.id}`;
+          open.textContent = s.outcome === 'playing' ? 'Resume' : 'Read';
+          open.addEventListener('click', () => void resume(s.id));
+
+          // Two taps, because a deleted tale cannot be brought back and a dialog would stall the page.
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'delete';
+          del.dataset.testid = `delete-${s.id}`;
+          del.textContent = 'Delete';
+          del.addEventListener('click', async () => {
+            if (!del.classList.contains('armed')) {
+              del.classList.add('armed');
+              del.textContent = 'Delete?';
+              return;
+            }
+            await api(`/api/session/${s.id}`, { method: 'DELETE' });
+            if (sessionId === s.id) {
+              localStorage.removeItem('portale.session');
+              sessionId = null;
+            }
+            await showTitle();
+          });
+
+          li.append(about, open, del);
+          savesEl.append(li);
+        }
+
+        document.body.dataset.screen = 'title';
+        titleEl.hidden = false;
+      }
+
       $('#again-lantern').addEventListener('click', () => void again({ scenario: 'lantern' }));
       $('#again-delve').addEventListener('click', () => void again({ scenario: 'delve', seed: Math.floor(Math.random() * 0xffffffff) }));
+      $('#new-lantern').addEventListener('click', () => void again({ scenario: 'lantern' }));
+      $('#new-delve').addEventListener('click', () => void again({ scenario: 'delve', seed: Math.floor(Math.random() * 0xffffffff) }));
+      $('#seeded').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const n = Number($('#seed-input').value.trim());
+        if (Number.isFinite(n) && $('#seed-input').value.trim() !== '') void again({ scenario: 'delve', seed: n });
+      });
+      $('#menu').addEventListener('click', () => {
+        if (!document.body.dataset.busy) void showTitle();
+      });
 
       async function act(utterance) {
         if (!utterance || send.disabled) return;

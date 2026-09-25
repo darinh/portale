@@ -111,11 +111,9 @@ export function portaleClient(baseUrl: string, opts: ClientOptions = {}) {
       ),
 
     sessions: () =>
-      expect<{ sessions: { id: string; scenario: string; turns: number }[] }>(
-        'GET',
-        '/api/sessions',
-        200,
-      ),
+      expect<{
+        sessions: { id: string; scenario: string; seed: number; title: string; turns: number; outcome: 'playing' | 'won' | 'lost' }[];
+      }>('GET', '/api/sessions', 200),
 
     begin: (req: { scenario?: string; seed?: number } = {}) =>
       expect<BeginResult>('POST', '/api/session', 201, req),
