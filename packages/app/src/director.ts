@@ -226,9 +226,9 @@ export function buildSchema(brief: SceneBrief): object {
         },
         required: ['name', 'lore', 'hostile'],
       },
-      tick: { type: 'string', enum: ['none', ...brief.clocks.map((c) => c.id as string)] },
-      milestone: { type: 'string', enum: ['none', ...brief.vows.map((v) => v.id as string)] },
-      reveals: { type: 'string', enum: ['none', ...brief.cluesHere.map((c) => c.id as string)] },
+      tick: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.clocks.map((c) => c.id as string)] },
+      milestone: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.vows.map((v) => v.id as string)] },
+      reveals: { type: 'string', enum: brief.outOfCharacter ? ['none'] : ['none', ...brief.cluesHere.map((c) => c.id as string)] },
       narration: { type: 'string' },
     },
     required: ['op', 'target', 'direction', 'ability', 'difficulty', 'damage', 'introduces', 'tick', 'milestone', 'reveals', 'narration'],
@@ -490,7 +490,7 @@ export function wanderingDirector(): Director {
       };
 
       if (brief.outOfCharacter) {
-        return { ...base, op: 'narrate_only', narration: 'You are told what you asked.' };
+        return { ...base, op: 'narrate_only', tick: 'none', milestone: 'none', reveals: 'none', narration: 'You are told what you asked.' };
       }
       if (foe !== undefined) {
         return {
@@ -499,7 +499,7 @@ export function wanderingDirector(): Director {
           narration: `${foe.name} moves, and the room narrows to the space between you.`,
         };
       }
-      if (brief.exits.length > 0) {
+      if (brief.mode !== 'combat' && brief.exits.length > 0) {
         return { ...base, op: 'move', narration: 'You take the passage and keep going.' };
       }
       return { ...base, op: 'narrate_only', narration: 'Nothing here but the sound of water.' };
@@ -513,7 +513,7 @@ export function wanderingDirector(): Director {
  * Short words and articles match everything and would rank the whole room as mentioned,
  * which is the same as ranking nobody.
  */
-const NAME_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'at', 'by', 'to']);
+const NAME_STOPWORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'at', 'by', 'to', 'with', 'from', 'for', 'on', 'who', 'was', 'that']);
 
 function nameWords(name: string): readonly string[] {
   return name
@@ -535,8 +535,9 @@ function nameWords(name: string): readonly string[] {
  * list, whatever else does.
  */
 export function mentions(utterance: string, e: Entity): boolean {
-  const said = utterance.toLowerCase();
-  return nameWords(e.name).some((wd) => said.includes(wd));
+  // Whole words only, so "golen" does not name Olen.
+  const said = new Set(utterance.toLowerCase().split(/[^a-z0-9]+/));
+  return nameWords(e.name).some((wd) => said.has(wd));
 }
 
 export function briefFor(w: World, utterance: string): SceneBrief {
@@ -552,6 +553,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
   // mitigation rather than the cap. Whoever the player just named comes first, because
   // they are the one answer that must always be reachable; hostiles next, because a fight
   // is the case where a wrong target costs the most; the dead last.
+  const aside = isOutOfCharacter(utterance);
   const others = presentHere(w);
   const said = stripOocPrefix(utterance);
   const ranked = [...others].sort(
@@ -582,7 +584,7 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     scenery: ranked.slice(MAX_IN_REACH),
     recent: spoken.slice(-RECENT_LINES),
     utterance: stripOocPrefix(utterance),
-    reprisalBy: w.mode === 'combat' ? (reprisalActor(w) ?? null) : null,
+    reprisalBy: w.mode === 'combat' && !aside ? (reprisalActor(w) ?? null) : null,
     place,
     exits: [...place.exits.keys()],
     clocks: [...w.clocks.values()].filter((c) => !c.done),
@@ -591,6 +593,6 @@ export function briefFor(w: World, utterance: string): SceneBrief {
     // a fight is not just implausible, it is prompt noise on the turns where getting the
     // op right matters most, and it invites the DM to answer a swing with a found object.
     cluesHere: w.mode === 'combat' ? [] : cluesHere(w),
-    outOfCharacter: isOutOfCharacter(utterance),
+    outOfCharacter: aside,
   };
 }

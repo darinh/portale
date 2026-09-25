@@ -28,13 +28,11 @@ import type { Entity, EntityId, World, WorldEvent } from './world.ts';
  * them on the way out. This is the boundary doing its job rather than trusting the input.
  */
 function scrubTokens(text: string, w: World): string {
-  let out = text;
-  for (const e of w.entities.values()) out = out.split(e.id).join(e.name);
-  return out
-    // Matches any slot-shaped token, not only the slots that exist. The model invented
-    // "~new3" in real play, and scrubbing only the declared slots let it straight through.
-    .replace(/~new\d+/gi, 'someone')
-    .replace(/\be_[a-z0-9_]+\b/gi, 'someone')
+  // One pass, so an id is replaced whole rather than by a shorter id that prefixes it, and
+  // an inserted name is never scanned again. Any slot-shaped token counts, not only the
+  // declared slots, because the model invented "~new3" in real play.
+  return text
+    .replace(/~new\d+|\be_[a-z0-9_]+\b/gi, (token) => w.entities.get(entityId(token.toLowerCase()))?.name ?? 'someone')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -47,7 +45,7 @@ export type Ruling =
 export interface Adjudication {
   readonly events: readonly WorldEvent[];
   readonly rulings: readonly Ruling[];
-  /** True when every part of the proposal was dropped and the turn produced no mechanics. */
+  /** True when the player's intent was dropped. The world may still have moved around them. */
   readonly softFail: boolean;
 }
 
@@ -72,7 +70,7 @@ function mintId(w: World): EntityId {
   return entityId(`e_m${w.seed.toString(36)}_${w.seq.toString(36)}`);
 }
 
-export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Adjudication {
+export function adjudicate(w: World, brief: SceneBrief, proposal: Proposal): Adjudication {
   const events: WorldEvent[] = [];
   const rulings: Ruling[] = [];
 
@@ -189,8 +187,10 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
       return;
     }
     // Split from the check above so each half is mutation-testable on its own. This one
-    // is what stops the DM handing over evidence from a room the player is not in.
-    if (clue.at !== working.here) {
+    // is what stops the DM handing over evidence from a room the player is not in. It reads
+    // the room the turn started in, the one the DM was briefed on, so a clue noticed on
+    // the way out is not refused because the move has already landed.
+    if (clue.at !== w.here) {
       rule({
         kind: 'drop',
         why: 'clue-elsewhere',
@@ -222,8 +222,12 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
      * Once every clue is found the vow falls back to the general earned-something test,
      * because by then the remaining work is acting on what you know rather than learning
      * more, and there is nothing left to discover.
+     *
+     * Judged from the start of the turn, so the turn that turns up the LAST clue still
+     * counts as a discovery. Reading the world after the reveal made that one find the
+     * only discovery refused as unearned.
      */
-    const stillHidden = unfoundFor(working, vow.id).length > 0;
+    const stillHidden = unfoundFor(w, vow.id).length > 0;
     if (stillHidden && !foundSomething()) {
       rule({
         kind: 'drop',
@@ -286,10 +290,36 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
         }
       }
     }
+
+    // A fight is between the people in this room. Asking whether any hostile lived anywhere
+    // in the world left the player pinned beside the only foe's corpse, refused every exit,
+    // in 162 of 200 generated delves.
+    const foeHere = [...working.entities.values()].some(
+      (e) => e.id !== working.protagonist && e.hostile && !e.dead && e.at === working.here,
+    );
+    if (working.mode === 'combat' && !foeHere) emit({ kind: 'mode', to: 'exploration' });
+
     return { events, rulings, softFail };
   }
 
   emit({ kind: 'narrated', text: scrubTokens(proposal.narration, w) });
+
+  /**
+   * An aside to the table is not a turn in the world. This is the one exit that skips
+   * `finish()`, so no clock moves, nothing is found, and nobody swings.
+   */
+  if (brief.outOfCharacter) {
+    const triedToAct =
+      proposal.op !== 'narrate_only' || proposal.tick !== 'none' || proposal.milestone !== 'none' || proposal.reveals !== 'none';
+    if (triedToAct) {
+      rule({
+        kind: 'drop',
+        why: 'aside-moves-nothing',
+        detail: 'The table pauses while you talk. Nothing in the world moves.',
+      });
+    }
+    return { events, rulings, softFail: false };
+  }
 
   /**
    * `move` and `narrate_only` do not act on anybody. The schema still forces the target
@@ -326,7 +356,7 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
       }
     } else {
       const named = working.entities.get(proposal.target);
-      if (named === undefined) {
+      if (named === undefined || named.at !== working.here) {
         rule({ kind: 'drop', why: 'absent-target', detail: 'The DM named someone who is not here.' });
       } else if (named.dead && proposal.op === 'attack') {
         rule({ kind: 'drop', why: 'already-dead', detail: `${named.name} has already fallen.` });
@@ -427,11 +457,6 @@ export function adjudicate(w: World, _brief: SceneBrief, proposal: Proposal): Ad
 
     if (target !== undefined && target.hp.now - damage <= 0) {
       emit({ kind: 'died', target: targetId });
-
-      const foesLeft = [...working.entities.values()].some(
-        (e) => e.id !== working.protagonist && e.hostile && !e.dead,
-      );
-      if (working.mode === 'combat' && !foesLeft) emit({ kind: 'mode', to: 'exploration' });
     }
   }
 

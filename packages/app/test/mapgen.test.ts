@@ -15,7 +15,8 @@ import assert from 'node:assert/strict';
 
 import { seed } from '../src/dice.ts';
 import { generateDelve } from '../src/mapgen.ts';
-import { wanderingDirector } from '../src/director.ts';
+import { briefFor, buildSchema, wanderingDirector } from '../src/director.ts';
+import type { Director, Proposal, SceneBrief } from '../src/director.ts';
 import { begin, scenarioFor, takeTurn } from '../src/engine.ts';
 import { project } from '../src/world.ts';
 import type { Direction, LocationId } from '../src/world.ts';
@@ -57,6 +58,63 @@ test('the wandering DM can drive any scenario, including generated ones', async 
     tavern.world.log.some((e) => e.kind === 'mode' && e.to === 'combat'),
     'a hostile in the room must be engaged, not walked past',
   );
+});
+
+test('no delve pins the player in a fight with nobody left to fight', async () => {
+  const pinned: number[] = [];
+  for (let n = 1; n <= 60; n++) {
+    const s = seed(n * 7919);
+    const session = { id: 't', world: begin(scenarioFor('delve', s), s) };
+    const dm = wanderingDirector();
+    for (let turn = 0; turn < 40 && !project(session.world).you.defeated; turn++) {
+      await takeTurn(session, 'onward', dm);
+      const w = session.world;
+      const foeHere = [...w.entities.values()].some((e) => e.hostile && !e.dead && e.at === w.here);
+      if (w.mode === 'combat' && !foeHere) {
+        pinned.push(n);
+        break;
+      }
+    }
+  }
+  assert.deepEqual(pinned, [], 'a fight with no foe in the room is a softlock, since moving is refused mid-fight');
+});
+
+function schemaBreaches(brief: SceneBrief, p: Proposal): string[] {
+  const props = (buildSchema(brief) as { properties: Record<string, { enum?: readonly unknown[] }> }).properties;
+  const fields = ['op', 'target', 'direction', 'ability', 'tick', 'milestone', 'reveals'] as const;
+  return fields.filter((f) => !props[f]!.enum!.includes(p[f])).map((f) => `${f}=${String(p[f])} (${brief.mode}${brief.outOfCharacter ? ', aside' : ''})`);
+}
+
+test('the wandering DM never proposes what the schema would forbid', async () => {
+  const breaches: string[] = [];
+  const says = ['onward', 'I search the walls', '// wait, where am I?', 'I strike', 'ooc: what was that noise?'];
+  const worlds = [
+    { id: 'l', world: begin(scenarioFor('lantern', seed(9)), seed(9)) },
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: `d${n}`, world: begin(scenarioFor('delve', seed(n * 131)), seed(n * 131)) })),
+  ];
+  for (const s of worlds) {
+    const inner = wanderingDirector();
+    const dm: Director = {
+      name: 'checked',
+      async propose(brief) {
+        const p = await inner.propose(brief);
+        breaches.push(...schemaBreaches(brief, p));
+        return p;
+      },
+    };
+    for (let turn = 0; turn < 30 && !project(s.world).you.defeated; turn++) {
+      await takeTurn(s, says[turn % says.length]!, dm);
+    }
+  }
+  assert.deepEqual([...new Set(breaches)], [], 'a model-free DM that breaks the schema tests a game the real one cannot play');
+});
+
+test('the wandering DM stays inside the schema in a fight it cannot find', async () => {
+  const w = begin(scenarioFor('lantern', seed(9)), seed(9));
+  const alone = { ...w, mode: 'combat' as const, entities: new Map([[w.protagonist, w.entities.get(w.protagonist)!]]) };
+  const brief = briefFor(alone, 'I look for them');
+  const p = await wanderingDirector().propose(brief);
+  assert.deepEqual(schemaBreaches(brief, p), []);
 });
 
 test('the same seed always produces the same delve', () => {

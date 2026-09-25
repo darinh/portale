@@ -62,10 +62,19 @@ export function openStore(path: string): Store {
       insSession.run(id, scenario, seed);
     },
     append(id, events) {
-      let seq = Number((nextSeq.get(id) as { n: number }).n);
-      for (const e of events) {
-        insEvent.run(id, seq, JSON.stringify(e));
-        seq += 1;
+      // One transaction per turn. A failure halfway used to leave the player's words saved
+      // without the roll that answered them.
+      db.exec('BEGIN');
+      try {
+        let seq = Number((nextSeq.get(id) as { n: number }).n);
+        for (const e of events) {
+          insEvent.run(id, seq, JSON.stringify(e));
+          seq += 1;
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
       }
     },
     load(id) {
