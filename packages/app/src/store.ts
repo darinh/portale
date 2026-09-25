@@ -72,25 +72,34 @@ export function openStore(path: string): Store {
   const delEvents = db.prepare('DELETE FROM events WHERE session_id = ?');
   const delSession = db.prepare('DELETE FROM sessions WHERE id = ?');
 
+  /**
+   * All or nothing. A turn that failed halfway used to leave the player's words saved without
+   * the roll that answered them.
+   */
+  function inTransaction<T>(work: () => T): T {
+    db.exec('BEGIN');
+    try {
+      const result = work();
+      db.exec('COMMIT');
+      return result;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   return {
     create(id, scenario, seed) {
       insSession.run(id, scenario, seed);
     },
     append(id, events) {
-      // One transaction per turn. A failure halfway used to leave the player's words saved
-      // without the roll that answered them.
-      db.exec('BEGIN');
-      try {
+      inTransaction(() => {
         let seq = Number((nextSeq.get(id) as { n: number }).n);
         for (const e of events) {
           insEvent.run(id, seq, JSON.stringify(e));
           seq += 1;
         }
-        db.exec('COMMIT');
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+      });
     },
     load(id) {
       const s = getSession.get(id) as { id: string; scenario: string; seed: number } | undefined;
@@ -112,16 +121,10 @@ export function openStore(path: string): Store {
       }));
     },
     delete(id) {
-      db.exec('BEGIN');
-      try {
+      return inTransaction(() => {
         delEvents.run(id);
-        const gone = Number(delSession.run(id).changes) > 0;
-        db.exec('COMMIT');
-        return gone;
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+        return Number(delSession.run(id).changes) > 0;
+      });
     },
     close() {
       db.close();
