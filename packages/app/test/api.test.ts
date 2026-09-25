@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { createApp, MAX_BODY_BYTES, MAX_UTTERANCE } from '../src/app.ts';
 import type { App } from '../src/app.ts';
@@ -162,10 +163,32 @@ test('the wrong method on a real route is 405, not a silent fall through to stat
 });
 
 test('an unknown api route is a JSON 404, never the index page', async () => {
-  await withApp(async ({ api }) => {
+  await withApp(async ({ api, dir }) => {
+    // A real static file under an /api/ path. Without it the route falls through to the
+    // static handler, misses on disk, and 404s anyway, so the guard is never exercised.
+    mkdirSync(join(dir, 'public', 'api'), { recursive: true });
+    writeFileSync(join(dir, 'public', 'api', 'nope'), 'PORTALE_STATIC_CANARY');
+
     const r = await api.raw('GET', '/api/nope');
     assert.equal(r.status, 404);
     assert.match(r.headers['content-type'] ?? '', /application\/json/);
+    assert.ok(!r.text.includes('PORTALE_STATIC_CANARY'), 'an api path must never be served from disk');
+  });
+});
+
+test('a malformed path is a 400, not a server error', async () => {
+  await withApp(async ({ api }) => {
+    for (const path of ['/%ZZ', '/index.html%', '/%E0%A4%A']) {
+      const r = await api.raw('GET', path);
+      assert.equal(r.status, 400, `${path} answered ${r.status}`);
+    }
+  });
+});
+
+test('health answers HEAD as well as GET', async () => {
+  await withApp(async ({ api }) => {
+    const r = await api.raw('HEAD', '/api/health');
+    assert.equal(r.status, 200);
   });
 });
 
@@ -278,6 +301,33 @@ test('a session survives a full server restart, proving the cache holds no autho
     await second.app.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a turn that fails to save leaves the session exactly as it was', async () => {
+  await withApp(async ({ api, dbPath }) => {
+    const { id } = await api.begin({ seed: 7 });
+    const side = new DatabaseSync(dbPath);
+    try {
+      // The player's words save, then the disk fails halfway through the rest of the turn.
+      side.exec(`CREATE TRIGGER injected_failure BEFORE INSERT ON events
+        WHEN json_extract(NEW.payload, '$.kind') = 'narrated'
+        BEGIN SELECT RAISE(ABORT, 'injected disk failure'); END;`);
+
+      const failed = await api.raw('POST', `/api/session/${id}/turn`, { utterance: 'I strike at Marga' });
+      assert.equal(failed.status, 500, 'the fixture must actually fail the write');
+
+      side.exec('DROP TRIGGER injected_failure');
+      const kinds = (side.prepare('SELECT payload FROM events WHERE session_id = ? ORDER BY seq').all(id) as { payload: string }[]).map(
+        (r) => (JSON.parse(r.payload) as { kind: string }).kind,
+      );
+      assert.deepEqual(kinds, ['began'], 'nothing from the failed turn may be half-written');
+    } finally {
+      side.close();
+    }
+
+    const { view } = await api.view(id);
+    assert.equal(view.transcript.some((l) => l.kind === 'you'), false, 'the cache must not remember a turn the log does not');
+  });
 });
 
 test('the session list counts turns, not raw events', async () => {

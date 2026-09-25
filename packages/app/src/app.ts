@@ -124,7 +124,7 @@ export function createApp(deps: AppDeps): App {
     const path = url.pathname;
 
     try {
-      if (req.method === 'GET' && path === '/api/health') {
+      if ((req.method === 'GET' || req.method === 'HEAD') && path === '/api/health') {
         return json(res, 200, {
           ok: true,
           dm: deps.director.name,
@@ -192,7 +192,15 @@ export function createApp(deps: AppDeps): App {
         try {
           const before = session.world.log.length;
           const result = await takeTurn(session, utterance, deps.director);
-          store.append(session.id, session.world.log.slice(before));
+          try {
+            store.append(session.id, session.world.log.slice(before));
+          } catch (e) {
+            // The durable log is the truth, so a turn that did not save never happened. The
+            // cached world already holds it, so it is dropped and the next read rebuilds.
+            live.delete(session.id);
+            throw e;
+          }
+          if (result.breach !== null) console.error(`portale: director breach in session ${session.id}: ${result.breach}`);
           return json(res, 200, result);
         } finally {
           inFlight.delete(session.id);
@@ -224,6 +232,7 @@ export function createApp(deps: AppDeps): App {
       return res.end(content);
     } catch (e) {
       if (e instanceof BadRequest) return json(res, 400, { error: e.message });
+      if (e instanceof URIError) return json(res, 400, { error: 'malformed path' });
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return json(res, 404, { error: 'not found' });
       return json(res, 500, { error: String(e) });
     }
