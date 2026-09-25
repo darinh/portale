@@ -82,8 +82,9 @@ difficulty the engine allowed.
 
 1. **Given** a rogue with expertise in Stealth, **When** they sneak, **Then** the roll adds twice the
    proficiency bonus.
-2. **Given** a DM that proposes an out-of-band difficulty, **When** the check resolves, **Then** the
-   engine clamps it and says so in the fiction.
+2. **Given** a DM that proposes a difficulty the obstacle does not allow, or a DM that ignores the
+   schema, **When** the check resolves, **Then** the engine holds the difficulty to what the obstacle
+   allows and says so in the fiction.
 
 ---
 
