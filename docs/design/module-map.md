@@ -192,6 +192,7 @@ engine overruling the DM. Without that, the engine-authority proof has nothing t
 | `tools/model-probe/` | measures whether a model can be trusted to emit valid actions |
 | `tools/replay-probe/` | scores DM proposals against a recorded session |
 | `tools/mutate/` | deletes each rule and requires the test named for it to fail |
+| `tools/playtest/` | plays whole sessions with the wandering DM and counts how they end |
 | `tools/api-cli/` | drives the HTTP API directly, booting its own server if asked |
 | `.github/skills/verify-portale/` | drives the real app in a real browser over CDP |
 

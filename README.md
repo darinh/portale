@@ -120,9 +120,14 @@ real rather than mocked.
 
 ```powershell
 node tools/mutate/run.mjs            # proves each rule is covered by its own named test
+node tools/playtest/run.mjs          # plays 200 seeds of each scenario and counts the endings
 node tools/model-probe/probe.mjs     # measures whether a model can be trusted
 node tools/replay-probe/run.mjs --repeat 3   # scores the DM against a real recorded session
 ```
+
+The playtest plays whole sessions with the model-free wandering DM and reports how many were
+won, lost, stuck or ran out of turns. `--app` points it at another checkout, so one command
+measures a before and an after.
 
 One replay pass is ten turns at temperature 0.85. On known-good code a single pass reports a
 fatal failure about a third of the time, so compare branches at equal repeated sample sizes
