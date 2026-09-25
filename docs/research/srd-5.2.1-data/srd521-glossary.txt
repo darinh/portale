@@ -1,0 +1,155 @@
+Ability Check
+Ability Score and Modifier
+Action
+Advantage
+Adventure
+Alignment
+Ally
+Area of Effect
+Armor Class
+Armor Training
+Attack [Action]
+Attack Roll
+Attitude
+Attunement
+Blinded [Condition]
+Blindsight
+Bloodied
+Bonus Action
+Breaking Objects
+Bright Light
+Burning [Hazard]
+Burrow Speed
+Campaign
+Cantrip
+Carrying Capacity
+Challenge Rating
+Character Sheet
+Charmed [Condition]
+Climbing
+Climb Speed
+Concentration
+Condition
+Cone [Area of Effect]
+Cover
+Crawling
+Creature
+Creature Type
+Critical Hit
+Cube [Area of Effect]
+Curses
+Cylinder [Area of Effect]
+D20 Test
+Damage
+Damage Roll
+Damage Threshold
+Damage Types
+Darkness
+Darkvision
+Dash [Action]
+Dead
+Deafened [Condition]
+Death Saving Throw
+Dehydration [Hazard]
+Difficult Terrain
+Difficulty Class
+Dim Light
+Disadvantage
+Disengage [Action]
+Dodge [Action]
+Emanation [Area of Effect]
+Encounter
+Enemy
+Exhaustion [Condition]
+Experience Points
+Expertise
+Falling [Hazard]
+Flying
+Fly Speed
+Friendly [Attitude]
+Frightened [Condition]
+Grappled [Condition]
+Grappling
+Hazard
+Healing
+Heavily Obscured
+Help [Action]
+Heroic Inspiration
+Hide [Action]
+High Jump
+Hit Point Dice
+Hit Points
+Hostile [Attitude]
+Hover
+Illusions
+Immunity
+Improvised Weapons
+Incapacitated [Condition]
+Indifferent [Attitude]
+Influence [Action]
+Initiative
+Invisible [Condition]
+Jumping
+Knocking Out a Creature
+Lightly Obscured
+Line [Area of Effect]
+Long Jump
+Long Rest
+Magic [Action]
+Magical Effect
+Malnutrition [Hazard]
+Monster
+Nonplayer Character
+Object
+Occupied Space
+Opportunity Attacks
+Paralyzed [Condition]
+Passive Perception
+Per Day
+Petrified [Condition]
+Player Character
+Poisoned [Condition]
+Possession
+Proficiency
+Prone [Condition]
+Reach
+Reaction
+Ready [Action]
+Resistance
+Restrained [Condition]
+Ritual
+Round Down
+Save
+Saving Throw
+Search [Action]
+Shape-Shifting
+Short Rest
+Simultaneous Effects
+Size
+Skill
+Speed
+Spell
+Spell Attack
+Spellcasting Focus
+Sphere [Area of Effect]
+Stable
+Stat Block
+Study [Action]
+Stunned [Condition]
+Suffocation [Hazard]
+Surprise
+Swimming
+Swim Speed
+Target
+Telepathy
+Teleportation
+Temporary Hit Points
+Tremorsense
+Truesight
+Unarmed Strike
+Unconscious [Condition]
+Unoccupied Space
+Utilize [Action]
+Vulnerability
+Weapon
+Weapon Attack
