@@ -7,6 +7,7 @@
  *
  * Usage:
  *   node tools/model-probe/probe.mjs --model qwen2.5:3b-instruct --trials 10
+ *   node tools/model-probe/probe.mjs --endpoint http://127.0.0.1:11434/v1
  */
 
 import { parseArgs } from "node:util";
@@ -14,12 +15,15 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({
   options: {
     model: { type: "string", default: "qwen2.5:3b-instruct" },
-    host: { type: "string", default: "http://127.0.0.1:11434" },
+    endpoint: { type: "string", default: "http://127.0.0.1:11434/v1" },
     trials: { type: "string", default: "10" },
   },
 });
 
 const TRIALS = Number(values.trials);
+/** Native Ollama generate lives on the host root; strip a trailing /v1 if present. */
+const HOST = values.endpoint.replace(/\/v1\/?$/, "");
+
 
 /**
  * The shape the engine would accept from the DM. Deliberately includes a bounded
@@ -96,11 +100,17 @@ async function runTrial(mode) {
   else if (mode === "json") body.format = "json";
 
   const started = performance.now();
-  const res = await fetch(`${values.host}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${HOST}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`endpoint unreachable (${values.endpoint}): ${msg}`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
   const data = await res.json();
   const wallMs = performance.now() - started;
@@ -130,8 +140,13 @@ async function runMode(mode, label) {
     try {
       results.push(await runTrial(mode));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("endpoint unreachable") || msg.startsWith("HTTP ")) {
+        console.error(`\nerror: ${msg}`);
+        process.exit(2);
+      }
       results.push({
-        fatal: e.message,
+        fatal: msg,
         schemaErrors: ["request failed"],
         wallMs: 0,
         evalCount: 0,
@@ -141,6 +156,7 @@ async function runMode(mode, label) {
     process.stdout.write(".");
   }
   process.stdout.write("\n");
+
 
   const parseOk = results.filter((r) => !r.parseError && !r.fatal).length;
   const validOk = results.filter((r) => r.schemaErrors.length === 0).length;
@@ -172,7 +188,8 @@ async function runMode(mode, label) {
   return { label, parseOk, validOk, trials: TRIALS };
 }
 
-console.log(`model=${values.model}  host=${values.host}  trials=${TRIALS}`);
+console.log(`model=${values.model}  endpoint=${values.endpoint}  host=${HOST}  trials=${TRIALS}`);
+
 const summary = [];
 summary.push(await runMode("none", "unconstrained (plain prompt)"));
 summary.push(await runMode("json", "format:json (JSON mode)"));

@@ -12,6 +12,7 @@
  *
  * Usage:
  *   node tools/model-probe/probe-enum.mjs --model qwen2.5:3b-instruct --trials 10
+ *   node tools/model-probe/probe-enum.mjs --endpoint http://127.0.0.1:11434/v1
  */
 
 import { parseArgs } from "node:util";
@@ -19,7 +20,7 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({
   options: {
     model: { type: "string", default: "qwen2.5:3b-instruct" },
-    host: { type: "string", default: "http://127.0.0.1:11434" },
+    endpoint: { type: "string", default: "http://127.0.0.1:11434/v1" },
     trials: { type: "string", default: "10" },
     /**
      * Drop the tempting wrong answer from the distractor pool.
@@ -34,6 +35,9 @@ const { values } = parseArgs({
 });
 
 const TRIALS = Number(values.trials);
+/** Native Ollama generate lives on the host root; strip a trailing /v1 if present. */
+const HOST = values.endpoint.replace(/\/v1\/?$/, "");
+
 
 /** The unambiguously correct answer. The scene names her and only her as the threat. */
 const CORRECT = "e_marga_smuggler";
@@ -99,11 +103,17 @@ async function runTrial(inReach) {
   };
 
   const started = performance.now();
-  const res = await fetch(`${values.host}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${HOST}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`endpoint unreachable (${values.endpoint}): ${msg}`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
 
@@ -133,11 +143,17 @@ async function runSize(n, label) {
     try {
       results.push(await runTrial(inReach));
     } catch (e) {
-      results.push({ inEnum: false, correct: false, opCorrect: false, chose: `ERROR ${e.message}`, wallMs: 0, evalCount: 0, evalDurationMs: 0 });
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("endpoint unreachable") || msg.startsWith("HTTP ")) {
+        console.error(`\nerror: ${msg}`);
+        process.exit(2);
+      }
+      results.push({ inEnum: false, correct: false, opCorrect: false, chose: `ERROR ${msg}`, wallMs: 0, evalCount: 0, evalDurationMs: 0 });
     }
     process.stdout.write(".");
   }
   process.stdout.write("\n");
+
 
   const inEnum = results.filter((r) => r.inEnum).length;
   const correct = results.filter((r) => r.correct).length;
@@ -161,7 +177,8 @@ async function runSize(n, label) {
   return { n, label, inEnum, correct, trials: TRIALS };
 }
 
-console.log(`model=${values.model}  trials=${TRIALS}  correct answer=${CORRECT}`);
+console.log(`model=${values.model}  endpoint=${values.endpoint}  trials=${TRIALS}  correct answer=${CORRECT}`);
+
 console.log(`NOTE: 3B on CPU is WEAKER than the 14B production target, so this is a`);
 console.log(`conservative direction. If it holds here it should hold there.\n`);
 

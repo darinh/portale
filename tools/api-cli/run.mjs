@@ -6,6 +6,7 @@
  * a build. It can boot its own throwaway server, so there is nothing to set up first.
  *
  *   node tools/api-cli/run.mjs --serve scripted smoke
+ *   node tools/api-cli/run.mjs --serve wander smoke
  *   node tools/api-cli/run.mjs --serve live play
  *   node tools/api-cli/run.mjs --url http://127.0.0.1:8787 health
  *   node tools/api-cli/run.mjs raw GET /api/sessions
@@ -13,6 +14,7 @@
  * Flags:
  *   --url <base>        talk to an already running server (default http://127.0.0.1:8787)
  *   --serve scripted    boot a throwaway server with a fixed DM, no model needed
+ *   --serve wander      boot a throwaway server with the model-free wandering DM
  *   --serve live        boot a throwaway server against the local model
  *   --db <path>         database for --serve (default: a temp file, deleted on exit)
  *   --seed <n>          seed for begin, play and smoke
@@ -26,8 +28,9 @@ import { join } from "node:path";
 
 import { createApp } from "../../packages/app/src/app.ts";
 import { portaleClient } from "../../packages/app/src/client.ts";
-import { ollamaDirector, scriptedDirector } from "../../packages/app/src/director.ts";
+import { ollamaDirector, scriptedDirector, wanderingDirector } from "../../packages/app/src/director.ts";
 import { DEMO_SCRIPT } from "../../packages/app/src/demo-script.ts";
+
 
 const argv = process.argv.slice(2);
 function flag(name, fallback = undefined) {
@@ -55,17 +58,20 @@ let scratchDir = null;
 
 async function bootIfAsked() {
   if (serveMode === undefined) return;
-  if (serveMode !== "scripted" && serveMode !== "live") {
-    throw new Error(`--serve takes "scripted" or "live", got ${serveMode}`);
+  if (serveMode !== "scripted" && serveMode !== "wander" && serveMode !== "live") {
+    throw new Error(`--serve takes "scripted", "wander", or "live", got ${serveMode}`);
   }
 
   const director =
     serveMode === "scripted"
       ? scriptedDirector(DEMO_SCRIPT)
-      : ollamaDirector({
-          endpoint: process.env.OLLAMA_ENDPOINT ?? "http://127.0.0.1:11434/v1",
-          model: process.env.OLLAMA_MODEL ?? "qwen2.5:3b-instruct",
-        });
+      : serveMode === "wander"
+        ? wanderingDirector()
+        : ollamaDirector({
+            endpoint: process.env.OLLAMA_ENDPOINT ?? "http://127.0.0.1:11434/v1",
+            model: process.env.OLLAMA_MODEL ?? "qwen2.5:3b-instruct",
+          });
+
 
   let dbPath = dbArg;
   if (dbPath === undefined) {
