@@ -92,71 +92,62 @@ async function propose(brief) {
 console.log(`model=${values.model}\nreplaying ${fixture.turns.length} real turns x ${REPEAT} pass(es)\n`);
 
 async function onePass() {
-let world = begin(SCENARIOS[0], seed(20260917));
-const seen = [];
-const results = [];
+  let world = begin(SCENARIOS[0], seed(20260917));
+  const seen = [];
+  const results = [];
+  const transport = [];
 
-for (const [i, turn] of fixture.turns.entries()) {
-  world = apply(world, { kind: "said", text: turn.utterance });
-  const brief = briefFor(world, turn.utterance);
+  for (const [i, turn] of fixture.turns.entries()) {
+    world = apply(world, { kind: "said", text: turn.utterance });
+    const brief = briefFor(world, turn.utterance);
 
-  let p;
-  try {
-    p = await propose(brief);
-  } catch (e) {
-    console.log(`  ${i + 1}. REQUEST FAILED ${e.message}`);
-    // Carry the category through, or a failed request silently shrinks the denominator
-    // and a fatal-failure rate reads better than it is.
-    results.push({
-      opOk: false,
-      truncated: false,
-      repeated: false,
-      leaked: false,
-      menu: false,
-      droppedViolence: turn.category === "violence",
-      fightOverMeta: false,
-      category: turn.category,
+    let p;
+    try {
+      p = await propose(brief);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      console.log(`  ${i + 1}. REQUEST FAILED ${err}`);
+      transport.push({ turn: i + 1, error: err, category: turn.category });
+      continue;
+    }
+
+    const text = p.narration ?? "";
+    const truncated = text.length > 0 && !/[.!?"\u201d]\s*$/.test(text.trim());
+    const repeated = seen.some((prev) => {
+      let k = 0;
+      while (k < Math.min(prev.length, text.length) && prev[k] === text[k]) k++;
+      return k > 60;
     });
-    continue;
+    const leaked = LEAK.test(text);
+    const menu = MENU.test(text);
+    const decidedOutcome = OUTCOME.test(text);
+    const opOk = turn.accept.includes(p.op);
+
+    // The two failures that are never defensible, whatever else the DM got right.
+    const droppedViolence = turn.category === "violence" && p.op !== "engage";
+    const fightOverMeta = turn.category === "meta" && (p.op === "engage" || p.op === "attack");
+
+    seen.push(text);
+    world = apply(world, { kind: "narrated", text });
+    results.push({ opOk, truncated, repeated, leaked, menu, decidedOutcome, droppedViolence, fightOverMeta, category: turn.category });
+
+    const flags = [
+      opOk ? null : `op=${p.op} accept=${turn.accept.join("|")}`,
+      droppedViolence ? "DROPPED-VIOLENCE" : null,
+      fightOverMeta ? "FIGHT-OVER-META" : null,
+      decidedOutcome ? "DECIDED-OUTCOME" : null,
+      truncated ? "TRUNCATED" : null,
+      repeated ? "REPEATED" : null,
+      leaked ? "LEAKS-MECHANICS" : null,
+      menu ? "MENU" : null,
+    ].filter(Boolean);
+
+    console.log(
+      `  ${String(i + 1).padStart(2)}. ${opOk ? "ok  " : "BAD "} ${String(turn.category).padEnd(9)} op=${String(p.op).padEnd(12)} dc=${String(p.difficulty).padStart(2)} ${flags.length ? "| " + flags.join(" | ") : ""}`,
+    );
   }
 
-  const text = p.narration ?? "";
-  const truncated = text.length > 0 && !/[.!?"\u201d]\s*$/.test(text.trim());
-  const repeated = seen.some((prev) => {
-    let k = 0;
-    while (k < Math.min(prev.length, text.length) && prev[k] === text[k]) k++;
-    return k > 60;
-  });
-  const leaked = LEAK.test(text);
-  const menu = MENU.test(text);
-  const decidedOutcome = OUTCOME.test(text);
-  const opOk = turn.accept.includes(p.op);
-
-  // The two failures that are never defensible, whatever else the DM got right.
-  const droppedViolence = turn.category === "violence" && p.op !== "engage";
-  const fightOverMeta = turn.category === "meta" && (p.op === "engage" || p.op === "attack");
-
-  seen.push(text);
-  world = apply(world, { kind: "narrated", text });
-  results.push({ opOk, truncated, repeated, leaked, menu, decidedOutcome, droppedViolence, fightOverMeta, category: turn.category });
-
-  const flags = [
-    opOk ? null : `op=${p.op} accept=${turn.accept.join("|")}`,
-    droppedViolence ? "DROPPED-VIOLENCE" : null,
-    fightOverMeta ? "FIGHT-OVER-META" : null,
-    decidedOutcome ? "DECIDED-OUTCOME" : null,
-    truncated ? "TRUNCATED" : null,
-    repeated ? "REPEATED" : null,
-    leaked ? "LEAKS-MECHANICS" : null,
-    menu ? "MENU" : null,
-  ].filter(Boolean);
-
-  console.log(
-    `  ${String(i + 1).padStart(2)}. ${opOk ? "ok  " : "BAD "} ${String(turn.category).padEnd(9)} op=${String(p.op).padEnd(12)} dc=${String(p.difficulty).padStart(2)} ${flags.length ? "| " + flags.join(" | ") : ""}`,
-  );
-}
-
-  return results;
+  return { results, transport };
 }
 
 const passes = [];
@@ -164,7 +155,23 @@ for (let r = 0; r < REPEAT; r++) {
   if (REPEAT > 1) console.log(`--- pass ${r + 1}/${REPEAT} ---`);
   passes.push(await onePass());
 }
-const results = passes.flat();
+const results = passes.flatMap((p) => p.results);
+const transport = passes.flatMap((p) => p.transport);
+
+if (transport.length > 0) {
+  const first = transport[0];
+  console.log(`\nNOT MEASURED: ${transport.length} request(s) failed; first error: ${first.error}`);
+  if (results.length > 0) {
+    const n = results.length;
+    const score = (k) => results.filter((r) => r[k]).length;
+    const inCat = (c) => results.filter((r) => r.category === c).length;
+    console.log(`\n================ PARTIAL (not a score) ================`);
+    console.log(`  violence silently dropped   ${score("droppedViolence")}/${inCat("violence")}`);
+    console.log(`  fight started over a meta   ${score("fightOverMeta")}/${inCat("meta")}`);
+    console.log(`  op defensible               ${score("opOk")}/${n}`);
+  }
+  process.exit(2);
+}
 
 const n = results.length;
 const score = (k) => results.filter((r) => r[k]).length;
@@ -186,7 +193,7 @@ console.log(`    handed back a menu          ${score("menu")}/${n}   <- want low
 const fatal = score("droppedViolence") + score("fightOverMeta");
 
 if (REPEAT > 1) {
-  const perPass = passes.map(fatalIn);
+  const perPass = passes.map((p) => fatalIn(p.results));
   const clean = perPass.filter((f) => f === 0).length;
   console.log(`\n  fatal failures per pass       ${perPass.join(", ")}`);
   console.log(`  passes with none              ${clean}/${REPEAT}`);
@@ -205,5 +212,6 @@ if (REPEAT === 1) {
   console.log(`(one pass is a sample, not a verdict. use --repeat 3 before believing it)`);
 }
 process.exit(fatal === 0 ? 0 : 1);
+
 
 

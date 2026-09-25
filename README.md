@@ -142,12 +142,13 @@ throwaway instance, so there is nothing to start first.
 
 ```powershell
 node tools/api-cli/run.mjs --serve scripted smoke      # drive a scenario and assert the basics
+node tools/api-cli/run.mjs --serve wander smoke        # same, with the model-free wandering DM
 node tools/api-cli/run.mjs --serve live play           # interactive, against the local model
 node tools/api-cli/run.mjs --url http://127.0.0.1:8787 health
 node tools/api-cli/run.mjs raw GET /api/sessions       # anything else
 ```
 
-`--serve scripted` needs no model at all. `raw` prints the status and body and exits non-zero
+`--serve scripted` and `--serve wander` need no model at all. `raw` prints the status and body and exits non-zero
 on failure, which is what makes it usable in a script.
 
 ### Endpoints

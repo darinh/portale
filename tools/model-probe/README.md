@@ -5,16 +5,27 @@ hosted model be trusted to emit engine-valid DM actions?
 
 ```
 node tools/model-probe/probe.mjs --model qwen2.5:3b-instruct --trials 8
+node tools/model-probe/probe.mjs --endpoint http://127.0.0.1:11434/v1
 ```
 
-Requires an Ollama server on `127.0.0.1:11434` and the model pulled.
+Requires an Ollama server on `127.0.0.1:11434` and the model pulled. `--endpoint` and
+`--model` match the defaults used by `tools/replay-probe` (`http://127.0.0.1:11434/v1`
+and `qwen2.5:3b-instruct`). An unreachable endpoint fails fast with a clear error.
 
-## Measured result
+## Historical synthetic-shape experiment (not today's gate)
+
+**These numbers are not evidence that the current production proposal conforms to today's
+schema.** `probe.mjs` validates an old nested synthetic shape
+`{ narration, intent: { kind, ability, difficulty } }`. That shape predates the flat
+production proposal built by `buildSchema` in `packages/app/src/director.ts`
+(`narration`, `op`, `target`, `ability`, `difficulty`, …). Keep the table as a historical
+record of the constrained-decoding experiment; do not cite the 8/8 row as a pass on the
+live director schema.
 
 Run 2026-09-15 on the GPU-less dev box (16 vCPU EPYC 7763, no GPU), `qwen2.5:3b-instruct`,
-8 trials per mode.
+8 trials per mode, against that synthetic nested shape:
 
-| Mode | Parses as JSON | Engine-valid |
+| Mode | Parses as JSON | Engine-valid (synthetic shape) |
 | --- | --- | --- |
 | unconstrained plain prompt | 0/8 | 0/8 |
 | `format: "json"` | 8/8 | 0/8 |
@@ -39,6 +50,7 @@ It does not eliminate the semantic class. A schema-valid action can still be ill
 difficulty 30 to pick a simple lock, healing past max HP, spending gold the player does
 not have, targeting an NPC who is already dead. Rules validation stays the engine's job
 and is the only place model output can legitimately be rejected.
+
 
 # Enum probe
 
@@ -99,9 +111,9 @@ of eight.
 
 ## What this does NOT license
 
-It does not license a cap on `inReach`, and `MAX_IN_REACH = 6` in `brief.ts` currently
-has no evidence behind it. Capping the list does not restore correctness because length
-is not the mechanism.
+It does not license a cap on `inReach`, and `MAX_IN_REACH = 8` in
+`packages/app/src/director.ts` currently has no evidence behind it. Capping the list does
+not restore correctness because length is not the mechanism.
 
 It also does not license strong claims from these numbers generally. Eight trials per
 cell cannot separate 3/8 from 6/8. Treat every figure here as a smoke signal, not a

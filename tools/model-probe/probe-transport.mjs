@@ -8,6 +8,7 @@
  *
  * Usage:
  *   node tools/model-probe/probe-transport.mjs --model qwen2.5:3b-instruct --trials 8
+ *   node tools/model-probe/probe-transport.mjs --endpoint http://127.0.0.1:11434/v1
  */
 
 import { parseArgs } from "node:util";
@@ -15,12 +16,14 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({
   options: {
     model: { type: "string", default: "qwen2.5:3b-instruct" },
-    host: { type: "string", default: "http://127.0.0.1:11434" },
+    endpoint: { type: "string", default: "http://127.0.0.1:11434/v1" },
     trials: { type: "string", default: "8" },
   },
 });
 
 const TRIALS = Number(values.trials);
+/** Native Ollama generate lives on the host root; strip a trailing /v1 if present. */
+const HOST = values.endpoint.replace(/\/v1\/?$/, "");
 
 const SCHEMA = {
   type: "object",
@@ -60,21 +63,32 @@ function validate(obj) {
   return errors;
 }
 
+async function fetchOrThrow(url, init) {
+  let r;
+  try {
+    r = await fetch(url, init);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`endpoint unreachable (${values.endpoint}): ${msg}`);
+  }
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
+  return r;
+}
+
 const TRANSPORTS = {
   "native /api/generate + format:<schema>": async () => {
-    const r = await fetch(`${values.host}/api/generate`, {
+    const r = await fetchOrThrow(`${HOST}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: values.model, prompt: PROMPT, stream: false, format: SCHEMA, options: { temperature: 0.8 } }),
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
     return (await r.json()).response;
   },
 
   "/v1 chat + response_format:json_schema": async () => {
-    const r = await fetch(`${values.host}/v1/chat/completions`, {
+    const r = await fetchOrThrow(`${HOST}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer unused" },
+      headers: { "Content-Type": "application/json", Authorization: "******" },
       body: JSON.stringify({
         model: values.model,
         messages: [{ role: "user", content: PROMPT }],
@@ -82,14 +96,13 @@ const TRANSPORTS = {
         response_format: { type: "json_schema", json_schema: { name: "dm_action", strict: true, schema: SCHEMA } },
       }),
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
     return (await r.json()).choices[0].message.content;
   },
 
   "/v1 chat + response_format:json_object": async () => {
-    const r = await fetch(`${values.host}/v1/chat/completions`, {
+    const r = await fetchOrThrow(`${HOST}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer unused" },
+      headers: { "Content-Type": "application/json", Authorization: "******" },
       body: JSON.stringify({
         model: values.model,
         messages: [{ role: "user", content: PROMPT }],
@@ -97,7 +110,6 @@ const TRANSPORTS = {
         response_format: { type: "json_object" },
       }),
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
     return (await r.json()).choices[0].message.content;
   },
 };
@@ -125,8 +137,13 @@ for (const [label, call] of Object.entries(TRANSPORTS)) {
         else for (const e of errs) reasons.set(e, (reasons.get(e) ?? 0) + 1);
       }
     } catch (e) {
-      fatal = e.message;
-      reasons.set(`REQUEST FAILED: ${e.message}`, (reasons.get(`REQUEST FAILED: ${e.message}`) ?? 0) + 1);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("endpoint unreachable") || msg.startsWith("HTTP ")) {
+        console.error(`\nerror: ${msg}`);
+        process.exit(2);
+      }
+      fatal = msg;
+      reasons.set(`REQUEST FAILED: ${msg}`, (reasons.get(`REQUEST FAILED: ${msg}`) ?? 0) + 1);
     }
     process.stdout.write(".");
   }
