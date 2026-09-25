@@ -8,13 +8,16 @@
  *
  * Usage:
  *   node tools/mutate/run.mjs
+ *   node tools/mutate/run.mjs --mutants path/to/mutants.mjs
  */
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const APP = join(import.meta.dirname, "..", "..", "packages", "app");
+const REPORTER = pathToFileURL(join(import.meta.dirname, "json-reporter.mjs")).href;
 
 const MUTANTS = [
   {
@@ -600,44 +603,140 @@ const MUTANTS = [
   },
 ];
 
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function runOne(testName) {
-  try {
-    execFileSync(
-      process.execPath,
-      ["--test", "--test-name-pattern", testName, "test/**/*.test.ts"],
-      { cwd: APP, stdio: "pipe", encoding: "utf8" },
-    );
-    return "PASSED";
-  } catch {
-    return "FAILED";
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--test",
+      `--test-name-pattern=^${escapeRegex(testName)}$`,
+      `--test-reporter=${REPORTER}`,
+      "--test-reporter-destination=stdout",
+      "test/**/*.test.ts",
+    ],
+    { cwd: APP, stdio: "pipe", encoding: "utf8" },
+  );
+
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+
+  return result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+}
+
+function matchesNamedTest(results, testName) {
+  return results.filter((result) => result.name === testName);
+}
+
+function countOccurrences(text, search) {
+  if (search.length === 0) return text.length + 1;
+
+  let count = 0;
+  let offset = 0;
+
+  while (true) {
+    const found = text.indexOf(search, offset);
+    if (found === -1) return count;
+    count++;
+    offset = found + 1;
   }
 }
 
-let survivors = 0;
-console.log(`Running ${MUTANTS.length} mutants, each against only its own test.\n`);
+function verdictLine(verdict, rule) {
+  console.log(`  ${verdict.padEnd(19)}  ${rule}`);
+}
 
-for (const m of MUTANTS) {
+function parseArgs(args) {
+  if (args.length === 0) return null;
+  if (args.length === 2 && args[0] === "--mutants") return args[1];
+  throw new Error("usage: node tools/mutate/run.mjs [--mutants path/to/mutants.mjs]");
+}
+
+async function loadMutants(args) {
+  const mutantsPath = parseArgs(args);
+  if (mutantsPath === null) return MUTANTS;
+
+  const module = await import(pathToFileURL(resolve(mutantsPath)).href);
+  if (!Array.isArray(module.default)) {
+    throw new Error(`${mutantsPath} must default-export an array of mutants`);
+  }
+
+  return module.default;
+}
+
+const mutants = await loadMutants(process.argv.slice(2));
+let killed = 0;
+console.log(`Running ${mutants.length} mutants, each against only its own test.\n`);
+
+for (const m of mutants) {
   const path = join(APP, m.file);
   const original = readFileSync(path, "utf8");
 
-  if (!original.includes(m.find)) {
-    console.log(`  ?? SKIPPED  ${m.rule}`);
-    console.log(`              anchor not found in ${m.file}, the mutation list is stale`);
-    survivors++;
+  let baseline;
+  try {
+    baseline = matchesNamedTest(runOne(m.test), m.test);
+  } catch {
+    verdictLine("BASELINE FAILING", m.rule);
     continue;
   }
 
-  writeFileSync(path, original.replace(m.find, m.replace));
-  const mutated = runOne(m.test);
-  writeFileSync(path, original);
-  const restored = runOne(m.test);
+  if (baseline.length === 0) {
+    verdictLine("STALE TEST NAME", m.rule);
+    continue;
+  }
 
-  const killed = mutated === "FAILED" && restored === "PASSED";
-  if (!killed) survivors++;
+  if (baseline.length > 1) {
+    verdictLine("AMBIGUOUS TEST NAME", m.rule);
+    continue;
+  }
 
-  console.log(`  ${killed ? "KILLED  " : "SURVIVED"}  ${m.rule}`);
-  console.log(`              mutant ${mutated}, restored ${restored}`);
+  if (baseline[0].status !== "PASSED") {
+    verdictLine("BASELINE FAILING", m.rule);
+    continue;
+  }
+
+  const anchorCount = countOccurrences(original, m.find);
+  if (anchorCount === 0) {
+    verdictLine("STALE ANCHOR", m.rule);
+    continue;
+  }
+
+  if (anchorCount > 1) {
+    verdictLine("AMBIGUOUS ANCHOR", m.rule);
+    continue;
+  }
+
+  let mutated;
+  try {
+    writeFileSync(path, original.replace(m.find, m.replace));
+    mutated = matchesNamedTest(runOne(m.test), m.test);
+  } catch {
+    verdictLine("ERRORED", m.rule);
+    continue;
+  } finally {
+    writeFileSync(path, original);
+  }
+
+  if (mutated.length !== 1) {
+    verdictLine("ERRORED", m.rule);
+    continue;
+  }
+
+  if (mutated[0].status === "FAILED") {
+    killed++;
+    verdictLine("KILLED", m.rule);
+  } else if (mutated[0].status === "PASSED") {
+    verdictLine("SURVIVED", m.rule);
+  } else {
+    verdictLine("ERRORED", m.rule);
+  }
 }
 
-console.log(`\n${MUTANTS.length - survivors}/${MUTANTS.length} rules provably covered by their own named test.`);
-process.exit(survivors === 0 ? 0 : 1);
+console.log(`\n${killed}/${mutants.length} rules provably covered by their own named test.`);
+process.exit(killed === mutants.length ? 0 : 1);
