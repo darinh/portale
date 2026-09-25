@@ -91,10 +91,14 @@ already installed on the machine in a throwaway profile. No Playwright, no brows
 It emulates a 390x844 phone by default, because Portale is mobile-first and verifying it at
 desktop width proves the wrong thing.
 
+On a fresh browser profile, `goto /` opens the title screen. Use an explicit scenario URL for
+a game recipe, or choose a tale on the title screen and wait for
+`document.body.dataset.screen === 'game'`.
+
 ```powershell
 node .github/skills/verify-portale/drive.mjs --base http://127.0.0.1:8787 --out ./evidence `
-  goto / `
-  wait "document.querySelectorAll('[data-testid=log] .line').length > 0" `
+  goto "/?scenario=lantern&seed=4" `
+  wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0" `
   shot 01-opening `
   type "[data-testid=utterance]" "I draw my blade and strike at Marga" `
   click "[data-testid=send]" `
@@ -113,6 +117,17 @@ Use these stable handles rather than positions or classes.
 
 | Handle | What it is |
 | --- | --- |
+| `[data-testid=title]` | the title screen |
+| `[data-testid=continue]` | resume the newest tale in progress; hidden when none exists |
+| `[data-testid=new-lantern]` | start a new Drowned Lantern tale |
+| `[data-testid=new-delve]` | start a new delve with a random seed |
+| `[data-testid=seed-input]` | the seed for a reproducible delve |
+| `[data-testid=new-seeded-delve]` | start the delve entered in the seed field |
+| `[data-testid=saves]` | the saved-tale list |
+| `[data-testid=save-<id>]` | one saved tale |
+| `[data-testid=resume-<id>]` | resume or read one saved tale |
+| `[data-testid=delete-<id>]` | delete one saved tale; the first click asks for confirmation |
+| `[data-testid=menu]` | open the title screen from a game |
 | `[data-testid=utterance]` | the text input |
 | `[data-testid=send]` | the Act button |
 | `[data-testid=log]` | the transcript container |
@@ -135,6 +150,7 @@ Use these stable handles rather than positions or classes.
 | `[data-testid=ending-title]` | "Sworn and done" or "You have fallen" |
 | `[data-testid=again-lantern]` / `[data-testid=again-delve]` | start a new tale from the ending |
 | `document.body.dataset.busy` | present while a turn is in flight |
+| `document.body.dataset.screen` | `title` after the saved-tale list renders, or `game` |
 | `document.body.dataset.mode` | exploration or combat, without reading text |
 | `document.body.dataset.outcome` | playing, won or lost |
 | `.you` `.dm` `.roll` `.mech` `.ruled` `.move` `.clock` `.vow` `.clue` | transcript line kinds |

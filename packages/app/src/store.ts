@@ -18,11 +18,21 @@ export interface StoredSession {
   readonly events: readonly WorldEvent[];
 }
 
+export interface ListedSession {
+  readonly id: string;
+  readonly scenario: string;
+  readonly seed: number;
+  readonly turns: number;
+}
+
 export interface Store {
   create(id: string, scenario: string, seed: number): void;
   append(id: string, events: readonly WorldEvent[]): void;
   load(id: string): StoredSession | null;
-  list(): readonly { readonly id: string; readonly scenario: string; readonly turns: number }[];
+  /** Most recently played first. */
+  list(): readonly ListedSession[];
+  /** True when there was a session to delete. Its events go with it, in one transaction. */
+  delete(id: string): boolean;
   close(): void;
 }
 
@@ -49,13 +59,18 @@ export function openStore(path: string): Store {
   const insEvent = db.prepare('INSERT INTO events (session_id, seq, payload) VALUES (?, ?, ?)');
   const getSession = db.prepare('SELECT id, scenario, seed FROM sessions WHERE id = ?');
   const getEvents = db.prepare('SELECT payload FROM events WHERE session_id = ? ORDER BY seq');
+  // Ordered by the newest event row, which is when the tale was last played. created_at has
+  // one-second resolution, so two sessions started together tied and listed in any order.
   const listSessions = db.prepare(`
     SELECT s.id AS id,
            s.scenario AS scenario,
+           s.seed AS seed,
            COUNT(CASE WHEN json_extract(e.payload, '$.kind') = 'said' THEN 1 END) AS turns
     FROM sessions s LEFT JOIN events e ON e.session_id = s.id
-    GROUP BY s.id ORDER BY s.created_at DESC
+    GROUP BY s.id ORDER BY COALESCE(MAX(e.rowid), 0) DESC, s.rowid DESC
   `);
+  const delEvents = db.prepare('DELETE FROM events WHERE session_id = ?');
+  const delSession = db.prepare('DELETE FROM sessions WHERE id = ?');
 
   return {
     create(id, scenario, seed) {
@@ -89,11 +104,24 @@ export function openStore(path: string): Store {
       };
     },
     list() {
-      return (listSessions.all() as { id: string; scenario: string; turns: number }[]).map((r) => ({
+      return (listSessions.all() as { id: string; scenario: string; seed: number; turns: number }[]).map((r) => ({
         id: r.id,
         scenario: r.scenario,
+        seed: Number(r.seed),
         turns: Number(r.turns),
       }));
+    },
+    delete(id) {
+      db.exec('BEGIN');
+      try {
+        delEvents.run(id);
+        const gone = Number(delSession.run(id).changes) > 0;
+        db.exec('COMMIT');
+        return gone;
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
     },
     close() {
       db.close();

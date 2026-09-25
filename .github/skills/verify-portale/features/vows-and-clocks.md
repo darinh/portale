@@ -32,7 +32,9 @@ Preconditions:
   `drive.mjs` run gets a throwaway browser profile, so it always starts a new session; what
   it does NOT do is rewind the server's scripted cursor.
 
-- **Both are on screen before anything happens.** Run `goto /` then
+- **Both are on screen before anything happens.** Run
+  `goto "/?scenario=lantern&seed=4"`, then
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"`, then
   `assert "document.querySelectorAll('#vows .box').length === 10" "ten vow boxes"` and
   `assert "document.querySelectorAll('#clocks .clock').length === 2" "two clocks"`.
 - **A clock advances one segment.** Take one turn, then

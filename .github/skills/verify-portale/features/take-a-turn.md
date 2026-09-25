@@ -28,10 +28,14 @@ update to show what changed.
 
 Preconditions:
 
-- Portale is healthy and `dm` is `scripted`, so the roll and the damage are deterministic.
+- Portale is healthy and `dm` is `scripted`.
 - A server started for this recipe and not yet driven. The scripted cursor is per process,
   so a session begun on an already-driven instance does not get script entry one.
+- Lantern seed 4. On the first scripted turn, the attack takes Marga from 12/12 to 8/12 and
+  her counterblow misses.
 
+- **Open the scene.** Run `goto "/?scenario=lantern&seed=4"` and
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"`.
 - **Submit.** Enter an attempt and act. Run
   `type "[data-testid=utterance]" "I draw my blade and strike at Marga"` then
   `click "[data-testid=send]"` then `wait "!document.body.dataset.busy"`.
@@ -42,7 +46,8 @@ Preconditions:
 - **Roll.** Assert the engine rolled.
   `assert "/d20 . \\d+ vs DC \\d+/.test(document.querySelector('.roll').textContent)" "a d20 was rolled against a DC"`.
 - **Effect.** Assert the target took damage.
-  `assert "!document.querySelector('[data-testid=cast]').textContent.includes('Marga 12/12')" "Marga's hit points changed"`.
+  `assert "document.querySelector('[data-testid=npc-e_marga]').textContent.includes('Marga 8/12')" "Marga lost four hit points"` and
+  `assert "document.querySelector('[data-testid=hp]').textContent === '20/20'" "Marga's counterblow missed"`.
 - **Persist.** Run `reload` then
   `wait "document.querySelectorAll('[data-testid=log] .line').length > 0"` then
   `assert "document.querySelector('.you').textContent.includes('strike at Marga')" "the turn survived a reload"`.
@@ -73,8 +78,8 @@ Preconditions:
 - The client optimistically shows the player's line before the server replies, then re-renders
   from the server response. Asserting `.you` length before `!document.body.dataset.busy` can
   see the optimistic copy and pass for the wrong reason.
-- `turn-effect` asserts the chip is no longer `Marga 12/12` rather than asserting an exact
-  value, because a critical hit doubles damage.
+- The scripted proposal is deterministic, but the seed controls the die. Keep seed 4 in
+  this recipe; an unseeded session misses the opening blow about half the time.
 - Some phrases are treated as out of character even without the `//` prefix, including any
   line ending in `DM` and anything mentioning a cut-off or repeated message. A test utterance
   that trips one of those will not act on the world.

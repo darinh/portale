@@ -58,8 +58,8 @@ behaviour. It then uses exactly four H2 sections in this order.
 
 - [The HTTP API](./api.md) covers every endpoint, the error contract, concurrency, restart
   and secrecy. Drive this first when the question is whether the server works.
-- [Start a session](./start-a-session.md) covers first load, the opening scene, resuming an
-  existing session, and recovery from a stale session id.
+- [Start a session](./start-a-session.md) covers the title screen, every way to begin or
+  resume a tale, deleting saves, reload behaviour, and recovery from a stale session id.
 - [Take a turn](./take-a-turn.md) covers the core loop of utterance, narration, dice, and the
   resulting state change, plus out-of-character messages.
 - [Engine authority](./engine-authority.md) covers the engine overruling the Dungeon Master,

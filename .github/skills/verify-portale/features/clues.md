@@ -31,25 +31,32 @@ Preconditions:
   so the harness gets a legal discovery and a refusal without any model.
 - A server started for this recipe, because the scripted cursor is per process.
 
-- **You start knowing nothing.** `goto /` then
+- **You start knowing nothing.** Run `goto "/?scenario=lantern&seed=4"`, then
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"` and
   `assert "document.querySelector('[data-testid=leads]').hidden === true"` and
   `assert "!document.body.innerText.includes('torn ledger page')"`.
-- **A discovery lands.** Take one turn, then
+- **A discovery lands as the fight starts.** Drive
+  `type "[data-testid=utterance]" "I grab for the ledger and square up to her"`,
+  `click "[data-testid=send]"` and `wait "!document.body.dataset.busy"`. Then
   `assert "document.querySelectorAll('.lead').length === 1"`,
   `assert "document.querySelectorAll('.line.clue').length === 1"` and
-  `assert "document.body.innerText.includes('torn ledger page')"`.
-- **Evidence from elsewhere is refused.** Take another turn and
-  `assert "document.body.innerText.includes('not something you could have found here')"`,
-  then `assert "!document.body.innerText.includes('signed for by a name')"` to prove the
-  refused clue's text did not leak while being refused. Note this only reports
-  `clue-elsewhere` OUT of combat; see the mid-fight recipe below.
-- **Nothing is findable during a fight.** Drive `I grab for the ledger and square up to her`,
-  which both starts the fight and carries a legal discovery, then
-  `assert "document.body.dataset.mode === 'combat'"` and
-  `assert "document.querySelectorAll('.lead').length === 1"` — the turn a fight STARTS keeps
-  its discovery, because the DM was briefed out of combat. Then drive
-  `I rummage behind the bar while she swings` and
+  `assert "document.body.innerText.includes('torn ledger page')"`. Also assert
+  `document.body.dataset.mode === 'combat'`. The turn a fight starts keeps the discovery
+  because the DM received its brief out of combat.
+- **Nothing is findable during a fight.** Drive
+  `type "[data-testid=utterance]" "I rummage behind the bar while she swings"`,
+  `click "[data-testid=send]"` and `wait "!document.body.dataset.busy"`. Then
   `assert "document.body.innerText.includes('no time to go looking')"`.
+- **Evidence from elsewhere is refused out of combat.** Run
+  `click "[data-testid=menu]"`, `wait "document.body.dataset.screen === 'title'"`,
+  `click "[data-testid=new-lantern]"` and
+  `wait "document.body.dataset.screen === 'game' && document.querySelectorAll('[data-testid=log] .line').length > 0"`.
+  The server's scripted cursor stays on its repeating entry, but the new session starts in
+  exploration. Run `type "[data-testid=utterance]" "I search the common room"`,
+  `click "[data-testid=send]"` and `wait "!document.body.dataset.busy"`. Then
+  `assert "document.body.innerText.includes('not something you could have found here')"`,
+  and
+  `assert "!document.body.innerText.includes('signed for by a name')" "the refused clue text did not leak"`.
 - **The vow does not move for a fight.** The scripted DM claims no milestone, so assert the
   vow boxes stay empty across several combat turns. The engine-level proof of the gate is
   `while clues remain unfound a vow advances only on discovery` in the unit suite.
@@ -69,6 +76,9 @@ Preconditions:
 - The scripted DM reveals on every turn, including the illegal one. That is deliberate, so
   the refusal path is always reachable. Do not read the repeated `clue-elsewhere` ruling as
   a bug.
+- Script entry one starts combat. To observe `clue-elsewhere`, consume that entry in the
+  first session, then start a second lantern session on the same server. The repeated entry
+  then runs while the new session is still in exploration.
 - A generated delve places its three clues in `elsewhere`, which excludes the entrance. A
   recipe that only looks around the first room of a delve will find nothing and is not
   evidence that generation is broken.
