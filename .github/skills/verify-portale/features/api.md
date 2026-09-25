@@ -15,6 +15,8 @@ prove server logic and the only way to prove the error contract.
 - `api-sessions` lists sessions and how many turns each has taken.
 - `api-errors` refuses bad input with the right status instead of a 500 or a silent success.
 - `api-concurrency` refuses a second turn while one is already in flight.
+- `api-ended` refuses a turn on a won or lost session with 409 and the outcome.
+- `api-atomic` a turn that fails to save leaves nothing half-written and no cached ghost.
 - `api-restart` rebuilds a session from its event log when the in-memory cache is cold.
 - `api-secrecy` never puts DM-only lore on the wire.
 

@@ -66,7 +66,7 @@ test('no delve pins the player in a fight with nobody left to fight', async () =
     const s = seed(n * 7919);
     const session = { id: 't', world: begin(scenarioFor('delve', s), s) };
     const dm = wanderingDirector();
-    for (let turn = 0; turn < 40 && !project(session.world).you.defeated; turn++) {
+    for (let turn = 0; turn < 40 && project(session.world).outcome === 'playing'; turn++) {
       await takeTurn(session, 'onward', dm);
       const w = session.world;
       const foeHere = [...w.entities.values()].some((e) => e.hostile && !e.dead && e.at === w.here);
@@ -102,7 +102,7 @@ test('the wandering DM never proposes what the schema would forbid', async () =>
         return p;
       },
     };
-    for (let turn = 0; turn < 30 && !project(s.world).you.defeated; turn++) {
+    for (let turn = 0; turn < 30 && project(s.world).outcome === 'playing'; turn++) {
       await takeTurn(s, says[turn % says.length]!, dm);
     }
   }

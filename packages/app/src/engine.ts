@@ -10,8 +10,8 @@ import type { Seed } from './dice.ts';
 import { DirectorContractBreach, briefFor } from './director.ts';
 import type { Director } from './director.ts';
 import { adjudicate } from './rules.ts';
-import { apply, clockId, clueId, entityId, locationId, meter, project, vowId } from './world.ts';
-import type { Clock, ClockId, Clue, ClueId, Direction, Entity, EntityId, Location, LocationId, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
+import { apply, clockId, clueId, entityId, locationId, meter, outcomeOf, project, vowId } from './world.ts';
+import type { Clock, ClockId, Clue, ClueId, Direction, Entity, EntityId, Location, LocationId, Outcome, PlayerView, Vow, VowId, VowRank, World } from './world.ts';
 import { generateDelve } from './mapgen.ts';
 
 export interface Scenario {
@@ -249,7 +249,23 @@ export interface TurnResult {
   readonly breach: string | null;
 }
 
+/** A turn asked of a session that has already been won or lost. */
+export class SessionOver extends Error {
+  readonly outcome: Outcome;
+
+  constructor(outcome: Outcome) {
+    super(`this session is over: ${outcome}`);
+    this.name = 'SessionOver';
+    this.outcome = outcome;
+  }
+}
+
 export async function takeTurn(session: Session, utterance: string, director: Director): Promise<TurnResult> {
+  // Refused before anything is recorded, the player's words included, so an ended session's
+  // log ends where the session did.
+  const outcome = outcomeOf(session.world);
+  if (outcome !== 'playing') throw new SessionOver(outcome);
+
   const brief = briefFor(session.world, utterance);
   session.world = apply(session.world, { kind: 'said', text: utterance });
 

@@ -130,6 +130,15 @@
       }
       button:disabled { opacity: 0.45; cursor: default; }
       #thinking { padding: 0 16px 12px; color: var(--dim); font-style: italic; font-size: 14px; }
+      #ending {
+        padding: 16px; border-top: 1px solid var(--edge); background: var(--panel);
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      #ending h2 { margin: 0; font-size: 18px; color: var(--gold); letter-spacing: 0.06em; }
+      body[data-outcome="lost"] #ending h2 { color: var(--blood); }
+      #ending p { margin: 0; color: var(--dim); font-size: 14px; }
+      #ending .again { display: flex; flex-direction: column; gap: 8px; }
+      #ending .again button.quiet { background: none; border: 1px solid var(--gold); color: var(--gold); }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -150,6 +159,15 @@
     <div id="leads" data-testid="leads" hidden></div>
     <div id="exits" data-testid="exits"></div>
     <div id="thinking" data-testid="thinking" hidden>The DM considers…</div>
+
+    <section id="ending" data-testid="ending" hidden>
+      <h2 id="ending-title" data-testid="ending-title"></h2>
+      <p id="ending-text" data-testid="ending-text"></p>
+      <div class="again">
+        <button type="button" id="again-lantern" data-testid="again-lantern">Return to the Drowned Lantern</button>
+        <button type="button" id="again-delve" data-testid="again-delve" class="quiet">Descend into a new delve</button>
+      </div>
+    </section>
 
     <form id="act" data-testid="act">
       <input
@@ -173,6 +191,7 @@
       const mapwrap = $('#mapwrap');
       const mapEl = $('#map');
       const thinking = $('#thinking');
+      const ending = $('#ending');
       const form = $('#act');
       const input = $('#utterance');
       const send = form.querySelector('button');
@@ -273,6 +292,17 @@
         $('#mode').textContent = view.you.defeated ? 'defeated' : view.mode;
         document.body.dataset.seq = String(view.seq);
         document.body.dataset.mode = view.mode;
+        document.body.dataset.outcome = view.outcome;
+
+        const over = view.outcome !== 'playing';
+        ending.hidden = !over;
+        form.hidden = over;
+        if (over) {
+          const kept = view.vows.filter((v) => v.done).map((v) => v.what);
+          $('#ending-title').textContent = view.outcome === 'won' ? 'Sworn and done' : 'You have fallen';
+          $('#ending-text').textContent =
+            view.outcome === 'won' ? `${kept.join('. ')}. The tale is yours.` : 'The tale ends here, and the dark keeps what it took.';
+        }
 
         cast.replaceChildren();
         for (const n of view.present) {
@@ -349,7 +379,7 @@
         }
 
         exits.replaceChildren();
-        if (view.exits.length > 0) {
+        if (view.exits.length > 0 && view.outcome === 'playing') {
           const label = document.createElement('span');
           label.className = 'label';
           label.textContent = 'ways out';
@@ -374,7 +404,7 @@
           ...init,
           headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
         });
-        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        if (!res.ok) throw Object.assign(new Error(`${res.status} ${await res.text()}`), { status: res.status });
         return res.json();
       }
 
@@ -399,13 +429,25 @@
         const body = {};
         if (wanted !== null) body.scenario = wanted;
         if (wantedSeed !== null) body.seed = Number(wantedSeed);
+        await startSession(body);
+      }
 
+      async function startSession(body) {
         const { id, view } = await api('/api/session', { method: 'POST', body: JSON.stringify(body) });
         sessionId = id;
         localStorage.setItem('portale.session', id);
         localStorage.setItem('portale.origin', location.search);
         render(view);
       }
+
+      /** A new tale from the ending screen. The old link is dropped so a reload resumes this one. */
+      async function again(body) {
+        history.replaceState(null, '', location.pathname);
+        await startSession(body);
+      }
+
+      $('#again-lantern').addEventListener('click', () => void again({ scenario: 'lantern' }));
+      $('#again-delve').addEventListener('click', () => void again({ scenario: 'delve', seed: Math.floor(Math.random() * 0xffffffff) }));
 
       async function act(utterance) {
         if (!utterance || send.disabled) return;
@@ -424,7 +466,10 @@
           render(result.view);
           if (result.softFail) line('ruled', 'Nothing came of that. Try saying it another way.');
         } catch (err) {
-          line('ruled', `The connection to the table failed. ${err.message}`);
+          // A 409 means the table moved on without this tab, because the tale ended or another
+          // turn is being told, so show what is true now rather than an error.
+          if (err.status === 409) render((await api(`/api/session/${sessionId}`)).view);
+          else line('ruled', `The connection to the table failed. ${err.message}`);
         } finally {
           send.disabled = false;
           thinking.hidden = true;
