@@ -1,5 +1,14 @@
 # The DM contract
 
+> **Status: historical.** This is the design synthesis from 2026-09-15, written before any code.
+> The game that was built is smaller and differs from it in most specifics. The "Usage", "Shape",
+> "The six hard problems", "Interface depth" and "Next implementation step" sections describe APIs
+> and types that do not exist (`createEngine`, `TurnId` idempotency, a store CAS, the `recount`
+> second call, `Terminal`, `Fact`, `Band`, `Recap`, the thirteen-op affordance list) and caps that
+> were later changed. The measurements under "Problem", including the retracted enum finding, still
+> stand. For what the code does today read [`module-map.md`](module-map.md) and the constitution at
+> [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md).
+
 ## Problem
 
 We are building an AI dungeon master whose entire value is improvisation, on a 14B-class

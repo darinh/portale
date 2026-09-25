@@ -7,8 +7,8 @@ description: Drive the real Portale app and prove behaviour, either through a re
 
 Portale is a mobile-first web game. A player types what they attempt, a locally hosted model
 narrates as Dungeon Master, and the engine owns every mechanical outcome. The surface a user
-touches is the browser page. The API and the model are behind it and are never contacted
-directly by the client.
+touches is the browser page. The page talks to the HTTP API; the model sits behind the API and
+the page never contacts it.
 
 Three tiers, no dependencies. `packages/app/public/index.html` is the client,
 `packages/app/src/server.ts` is the API, and `node:sqlite` is the database. Node 24 runs the
@@ -16,7 +16,7 @@ TypeScript directly, so there is nothing to build before you can drive it.
 
 ## Launch
 
-Node is not on `PATH` on this machine. Every command below assumes this prefix.
+If `node --version` does not answer, Node is not on `PATH` in this shell. Prefix it first.
 
 ```powershell
 $env:Path = "C:\Users\dahoove\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64;" + $env:Path
